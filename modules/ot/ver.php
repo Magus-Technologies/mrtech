@@ -11,13 +11,15 @@ $ot = $db->prepare("
   SELECT ot.*, c.nombre as cliente_nombre, c.telefono, c.whatsapp, c.email as cliente_email,
          c.ruc_dni, te.nombre as tipo_equipo, e.marca, e.modelo, e.serial, e.color,
          CONCAT(u.nombre,' ',u.apellido) as tecnico_nombre,
-         CONCAT(uc.nombre,' ',uc.apellido) as creador_nombre
+         CONCAT(uc.nombre,' ',uc.apellido) as creador_nombre,
+         s.nombre as servicio_nombre
   FROM ordenes_trabajo ot
   JOIN clientes c    ON c.id  = ot.cliente_id
   JOIN equipos e     ON e.id  = ot.equipo_id
   JOIN tipos_equipo te ON te.id = e.tipo_equipo_id
   LEFT JOIN usuarios u  ON u.id  = ot.tecnico_id
   LEFT JOIN usuarios uc ON uc.id = ot.usuario_creador_id
+  LEFT JOIN servicios s ON s.id  = ot.servicio_id
   WHERE ot.id = ?
 ");
 $ot->execute([$id]);
@@ -53,9 +55,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'registrar_pago') {
         $db->prepare("UPDATE ordenes_trabajo SET pagado=1, metodo_pago=?, fecha_pago=NOW() WHERE id=?")
            ->execute([$_POST['metodo_pago'], $id]);
-        // Movimiento de caja
-        $cajaAbierta = $db->prepare("SELECT id FROM cajas WHERE fecha=CURDATE() AND estado='abierta' ORDER BY id DESC LIMIT 1");
-        $cajaAbierta->execute();
+        // Movimiento de caja — en la caja abierta del usuario logueado (caja por usuario)
+        $cajaAbierta = $db->prepare("SELECT id FROM cajas WHERE estado='abierta' AND usuario_id=? ORDER BY fecha DESC, id DESC LIMIT 1");
+        $cajaAbierta->execute([$user['id']]);
         $caja = $cajaAbierta->fetchColumn();
         if ($caja) {
             $db->prepare("INSERT INTO movimientos_caja (caja_id,tipo,concepto,monto,referencia,usuario_id) VALUES (?,?,?,?,?,?)")
@@ -67,9 +69,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 // Fotos
-$fotos = $db->prepare("SELECT * FROM fotos_ot WHERE ot_id=? ORDER BY created_at");
-$fotos->execute([$id]);
-$fotos = $fotos->fetchAll();
+// Cargar fotos y videos con fallback si columnas nuevas no existen
+try {
+    $fotos = $db->prepare("SELECT * FROM fotos_ot WHERE ot_id=? AND (tipo_archivo='foto' OR tipo_archivo IS NULL) ORDER BY created_at");
+    $fotos->execute([$id]);
+    $fotos = $fotos->fetchAll();
+    $videos = $db->prepare("SELECT * FROM fotos_ot WHERE ot_id=? AND tipo_archivo='video' ORDER BY created_at");
+    $videos->execute([$id]);
+    $videos = $videos->fetchAll();
+} catch (\Exception $e) {
+    // Columnas nuevas aún no existen en la BD
+    $fotos_stmt = $db->prepare("SELECT * FROM fotos_ot WHERE ot_id=? ORDER BY created_at");
+    $fotos_stmt->execute([$id]);
+    $fotos  = $fotos_stmt->fetchAll();
+    $videos = [];
+}
 
 // Historial
 $historial = $db->prepare("
@@ -100,7 +114,7 @@ $breadcrumb = [
 require_once __DIR__ . '/../../includes/header.php';
 
 $estado = $ot['estado'];
-$eInfo  = ESTADOS_OT[$estado];
+$eInfo = ESTADOS_OT[$estado] ?? ['label'=>ucfirst(str_replace('_',' ',$estado)),'color'=>'secondary','icon'=>'circle','es_final'=>false];
 ?>
 
 <!-- Header OT -->
@@ -123,7 +137,7 @@ $eInfo  = ESTADOS_OT[$estado];
       <i data-feather="file-text" style="width:14px;height:14px"></i> PDF / Imprimir
     </a>
     <?php if ($ot['whatsapp']): ?>
-    <a href="https://wa.me/<?= preg_replace('/\D/','',$ot['whatsapp']) ?>?text=Hola+<?= urlencode($ot['cliente_nombre']) ?>%2C+su+equipo+est%C3%A1+<?= urlencode(ESTADOS_OT[$estado]['label']) ?>+%28OT:+<?= $ot['codigo_ot'] ?>%29"
+    <a href="https://wa.me/<?= preg_replace('/\D/','',$ot['whatsapp']) ?>?text=Hola+<?= urlencode($ot['cliente_nombre']) ?>%2C+su+equipo+est%C3%A1+<?= urlencode(isset(ESTADOS_OT[$estado]) ? ESTADOS_OT[$estado]['label'] : ucfirst(str_replace('_',' ',$estado))) ?>+%28OT:+<?= $ot['codigo_ot'] ?>%29"
        target="_blank" class="btn btn-success btn-sm">
       <i data-feather="message-circle" style="width:14px;height:14px"></i> WhatsApp
     </a>
@@ -158,6 +172,7 @@ $eInfo  = ESTADOS_OT[$estado];
             <?php if ($ot['marca'] || $ot['modelo']): ?><div><?= sanitize($ot['marca'].' '.$ot['modelo']) ?></div><?php endif; ?>
             <?php if ($ot['serial']): ?><div class="text-muted small">S/N: <code><?= sanitize($ot['serial']) ?></code></div><?php endif; ?>
             <?php if ($ot['color']): ?><div class="text-muted small">Color: <?= sanitize($ot['color']) ?></div><?php endif; ?>
+            <?php if ($ot['servicio_nombre']): ?><div class="mt-2"><span class="badge bg-primary"><?= sanitize($ot['servicio_nombre']) ?></span></div><?php endif; ?>
           </div>
         </div>
       </div>
@@ -180,20 +195,66 @@ $eInfo  = ESTADOS_OT[$estado];
       </div>
     </div>
 
-    <!-- Fotos -->
-    <?php if ($fotos): ?>
+    <!-- Fotos y Videos -->
+    <?php if ($fotos || !empty($videos)): ?>
     <div class="tr-card mb-3">
-      <div class="tr-card-header"><h6 class="mb-0 small fw-semibold">FOTOS DEL EQUIPO</h6></div>
+      <div class="tr-card-header">
+        <h6 class="mb-0 small fw-semibold">
+          FOTOS Y VIDEOS DEL EQUIPO
+          <?php if(!empty($fotos)): ?>
+          <span class="badge bg-secondary ms-1"><?= count($fotos) ?> foto(s)</span>
+          <?php endif; ?>
+          <?php if(!empty($videos)): ?>
+          <span class="badge bg-info text-dark ms-1">🎬 <?= count($videos) ?> video(s)</span>
+          <?php endif; ?>
+        </h6>
+      </div>
       <div class="tr-card-body">
-        <div class="foto-preview-grid">
+        <?php if(!empty($fotos)): ?>
+        <div class="foto-preview-grid mb-3">
           <?php foreach ($fotos as $foto): ?>
           <div class="foto-preview-item">
             <a href="<?= UPLOAD_URL . $foto['ruta'] ?>" target="_blank">
-              <img src="<?= UPLOAD_URL . $foto['ruta'] ?>" alt="<?= sanitize($foto['descripcion'] ?? 'foto') ?>">
+              <img src="<?= UPLOAD_URL . $foto['ruta'] ?>"
+                   alt="<?= sanitize($foto['descripcion'] ?? 'foto') ?>"
+                   onerror="this.src='data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80'><rect fill='%23f3f4f6' width='80' height='80'/><text x='50%25' y='55%25' text-anchor='middle' fill='%239ca3af' font-size='11'>error</text></svg>'"/>
             </a>
           </div>
           <?php endforeach; ?>
         </div>
+        <?php endif; ?>
+
+        <?php if(!empty($videos)): ?>
+        <?php if(!empty($fotos)): ?><hr class="my-3"/><?php endif; ?>
+        <div class="row g-3">
+          <?php foreach($videos as $vid): ?>
+          <div class="col-12 col-md-6">
+            <div class="p-2 rounded border" style="background:#f5f3ff">
+              <video controls preload="metadata"
+                     style="width:100%;border-radius:6px;max-height:240px;background:#000;display:block">
+                <source src="<?= UPLOAD_URL . $vid['ruta'] ?>" type="video/mp4"/>
+                Tu navegador no soporta video HTML5.
+              </video>
+              <div class="d-flex justify-content-between align-items-center mt-1 px-1">
+                <span class="text-muted" style="font-size:11px">
+                  🎬
+                  <?php if(!empty($vid['duracion_seg'])): ?>
+                  <?= sprintf('%d:%02d', intdiv((int)$vid['duracion_seg'],60), (int)$vid['duracion_seg']%60) ?>
+                  <?php endif; ?>
+                  <?php if(!empty($vid['tamano_bytes'])): ?>
+                  · <?= round($vid['tamano_bytes']/1024/1024, 1) ?> MB
+                  <?php endif; ?>
+                </span>
+                <a href="<?= UPLOAD_URL . $vid['ruta'] ?>" target="_blank" download
+                   class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:11px">
+                  ⬇ Descargar
+                </a>
+              </div>
+            </div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
       </div>
     </div>
     <?php endif; ?>
@@ -203,21 +264,18 @@ $eInfo  = ESTADOS_OT[$estado];
     <div class="tr-card mb-3">
       <div class="tr-card-header"><h6 class="mb-0 small fw-semibold">CHECKLIST FÍSICO</h6></div>
       <div class="tr-card-body">
-        <?php
-        $labels = ['pantalla'=>'Pantalla','carcasa'=>'Carcasa','teclado'=>'Teclado','touchpad'=>'Touchpad',
-                   'puertos'=>'Puertos','bateria'=>'Batería','cargador'=>'Cargador',
-                   'accesorios'=>'Accesorios','datos_respaldados'=>'Datos respaldados'];
-        foreach ($labels as $k => $l):
-            $val = $checklist[$k] ?? 'no_aplica';
+        <?php foreach ($checklist as $k => $val):
+            if ($k === '_observacion') continue;
             $badge = $val==='bueno'?'success':($val==='malo'?'danger':'secondary');
+            $label = $val==='bueno'?'Bueno':($val==='malo'?'Malo':'N/A');
         ?>
         <div class="checklist-item">
-          <span class="small"><?= $l ?></span>
-          <span class="badge bg-<?= $badge ?>"><?= ucfirst($val) ?></span>
+          <span class="small"><?= sanitize($k) ?></span>
+          <span class="badge bg-<?= $badge ?>"><?= $label ?></span>
         </div>
         <?php endforeach; ?>
-        <?php if (!empty($checklist['observacion'])): ?>
-        <div class="mt-2 p-2 bg-light rounded small"><?= sanitize($checklist['observacion']) ?></div>
+        <?php if (!empty($checklist['_observacion'])): ?>
+        <div class="mt-2 p-2 bg-light rounded small"><?= sanitize($checklist['_observacion']) ?></div>
         <?php endif; ?>
       </div>
     </div>
@@ -320,7 +378,7 @@ $eInfo  = ESTADOS_OT[$estado];
     </div>
 
     <!-- Cambiar estado -->
-    <?php if (!in_array($estado,['entregado','cancelado'])): ?>
+    <?php if (!(isset($eInfo['es_final']) && $eInfo['es_final'])): ?>
     <div class="tr-card mb-3">
       <div class="tr-card-header"><h6 class="mb-0 small fw-semibold">CAMBIAR ESTADO</h6></div>
       <div class="tr-card-body">
@@ -351,7 +409,7 @@ $eInfo  = ESTADOS_OT[$estado];
         <div class="small mb-1"><strong>F. ingreso:</strong> <?= formatDateTime($ot['fecha_ingreso']) ?></div>
         <div class="small mb-1"><strong>F. estimada:</strong>
           <?php if ($ot['fecha_estimada']): ?>
-            <span class="<?= $ot['fecha_estimada'] < date('Y-m-d') && !in_array($estado,['listo','entregado']) ? 'text-danger fw-semibold' : '' ?>">
+            <span class="<?= $ot['fecha_estimada'] < date('Y-m-d') && !(isset($eInfo['es_final']) && $eInfo['es_final']) ? 'text-danger fw-semibold' : '' ?>">
               <?= formatDate($ot['fecha_estimada']) ?>
             </span>
           <?php else: ?> — <?php endif; ?>

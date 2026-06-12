@@ -34,19 +34,52 @@ $detalle = $db->prepare("
 $detalle->execute([$id]);
 $detalle = $detalle->fetchAll();
 
+// Pagos múltiples de la venta (si el módulo está instalado)
+$pagosVenta = [];
+try {
+    $st = $db->prepare("SELECT metodo, monto FROM venta_pagos WHERE venta_id=? ORDER BY id");
+    $st->execute([$id]);
+    $pagosVenta = $st->fetchAll();
+} catch (\Throwable $e) { /* tabla aún no creada */ }
+
 // Anular venta
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'anular') {
     $user = currentUser();
-    $db->prepare("UPDATE ventas SET estado='anulada' WHERE id=?")->execute([$id]);
-    foreach ($detalle as $d) {
-        $s = $db->prepare("SELECT stock_actual FROM productos WHERE id=?"); $s->execute([$d['producto_id']]);
-        $antes = (float)$s->fetchColumn();
-        $despues = $antes + $d['cantidad'];
-        $db->prepare("UPDATE productos SET stock_actual=? WHERE id=?")->execute([$despues,$d['producto_id']]);
-        $db->prepare("INSERT INTO kardex (producto_id,tipo,cantidad,stock_antes,stock_despues,precio_unit,motivo,referencia,usuario_id) VALUES (?,?,?,?,?,?,?,?,?)")
-           ->execute([$d['producto_id'],'devolucion',$d['cantidad'],$antes,$despues,$d['precio_unit'],'Venta anulada',$venta['codigo'],$user['id']]);
+
+    // ¿Existe el módulo de almacenes? Para sincronizar la Tienda.
+    $almacenPrincipal = null;
+    try {
+        $almacenPrincipal = $db->query("SELECT id FROM almacenes WHERE principal=1 LIMIT 1")->fetchColumn() ?: null;
+    } catch (\Throwable $e) { /* módulo de traslados no instalado */ }
+
+    // Evitar anular dos veces (devolvería stock de más)
+    if (($venta['estado'] ?? '') === 'anulada') {
+        setFlash('warning','Esta venta ya estaba anulada.');
+        redirect(BASE_URL.'modules/ventas/detalle.php?id='.$id);
     }
-    setFlash('success','Venta anulada y stock restaurado.');
+
+    // Toda la anulación es atómica: o se revierte todo, o nada.
+    $db->beginTransaction();
+    try {
+        $db->prepare("UPDATE ventas SET estado='anulada' WHERE id=?")->execute([$id]);
+        foreach ($detalle as $d) {
+            $s = $db->prepare("SELECT stock_actual FROM productos WHERE id=? FOR UPDATE"); $s->execute([$d['producto_id']]);
+            $antes = (float)$s->fetchColumn();
+            $despues = $antes + $d['cantidad'];
+            $db->prepare("UPDATE productos SET stock_actual=? WHERE id=?")->execute([$despues,$d['producto_id']]);
+            if ($almacenPrincipal) {
+                $db->prepare("UPDATE stock_almacen SET cantidad=? WHERE almacen_id=? AND producto_id=?")
+                   ->execute([$despues, $almacenPrincipal, $d['producto_id']]);
+            }
+            $db->prepare("INSERT INTO kardex (producto_id,almacen_id,tipo,cantidad,stock_antes,stock_despues,precio_unit,motivo,referencia,usuario_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
+               ->execute([$d['producto_id'],$almacenPrincipal,'devolucion',$d['cantidad'],$antes,$despues,$d['precio_unit'],'Venta anulada',$venta['codigo'],$user['id']]);
+        }
+        $db->commit();
+        setFlash('success','Venta anulada y stock restaurado.');
+    } catch (\Throwable $e) {
+        $db->rollBack();
+        setFlash('danger','No se pudo anular la venta: '.$e->getMessage());
+    }
     redirect(BASE_URL.'modules/ventas/detalle.php?id='.$id);
 }
 
@@ -134,17 +167,15 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="tr-card">
       <div class="tr-card-header"><h6 class="mb-0 small fw-semibold">DATOS DE LA VENTA</h6></div>
       <div class="tr-card-body">
-        <?php $rows = [
+        <?php
+        $metCfg = function_exists('getMetodosPago') ? getMetodosPago() : [];
+        $rows = [
             'Código'       => $venta['codigo'],
             'Vendedor'     => $venta['vendedor_nombre'],
             'Cliente'      => $venta['cliente_nombre'] ?? '— Consumidor final —',
             'DNI/RUC'      => $venta['ruc_dni']    ?? '—',
             'Teléfono'     => $venta['telefono']   ?? '—',
             'Comprobante'  => ucfirst($venta['tipo_doc']),
-            'Método pago'  => ucfirst($venta['metodo_pago']),
-            'Monto pagado' => formatMoney($venta['monto_pagado'] ?? $venta['total']),
-            'Vuelto'       => formatMoney($venta['vuelto'] ?? 0),
-            'Fecha'        => formatDateTime($venta['created_at']),
         ];
         foreach($rows as $label => $val): ?>
         <div class="d-flex justify-content-between small mb-2 pb-1 border-bottom">
@@ -152,6 +183,32 @@ require_once __DIR__ . '/../../includes/header.php';
           <span class="fw-semibold text-end"><?= sanitize((string)$val) ?></span>
         </div>
         <?php endforeach; ?>
+
+        <!-- Desglose de pagos -->
+        <div class="small mb-2 pb-1 border-bottom">
+          <div class="text-muted mb-1">Pago<?= count($pagosVenta)>1 ? 's' : '' ?></div>
+          <?php if (count($pagosVenta) >= 1): ?>
+            <?php foreach ($pagosVenta as $pg): $lbl = $metCfg[$pg['metodo']]['label'] ?? ucfirst($pg['metodo']); ?>
+            <div class="d-flex justify-content-between ms-2">
+              <span><?= sanitize($lbl) ?></span>
+              <span class="fw-semibold"><?= formatMoney($pg['monto']) ?></span>
+            </div>
+            <?php endforeach; ?>
+          <?php else: ?>
+            <div class="d-flex justify-content-between ms-2">
+              <span><?= sanitize(ucfirst($venta['metodo_pago'])) ?></span>
+              <span class="fw-semibold"><?= formatMoney($venta['monto_pagado'] ?? $venta['total']) ?></span>
+            </div>
+          <?php endif; ?>
+        </div>
+        <div class="d-flex justify-content-between small mb-2 pb-1 border-bottom">
+          <span class="text-muted">Vuelto</span>
+          <span class="fw-semibold text-end"><?= formatMoney($venta['vuelto'] ?? 0) ?></span>
+        </div>
+        <div class="d-flex justify-content-between small mb-2 pb-1 border-bottom">
+          <span class="text-muted">Fecha</span>
+          <span class="fw-semibold text-end"><?= sanitize(formatDateTime($venta['created_at'])) ?></span>
+        </div>
       </div>
     </div>
   </div>

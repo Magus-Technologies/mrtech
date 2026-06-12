@@ -18,48 +18,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'registr
     if (!empty($items)) {
         $total = array_sum(array_map(fn($i) => (float)$i['cantidad'] * (float)$i['precio_unit'], $items));
 
-        // Registrar en kardex + actualizar stock
-        foreach ($items as $item) {
-            $pid   = (int)$item['producto_id'];
-            $cant  = (float)$item['cantidad'];
-            $pu    = (float)$item['precio_unit'];
+        // ¿Existe el módulo de almacenes? Las compras entran al almacén principal (Tienda).
+        $almacenPrincipal = null;
+        try {
+            $almacenPrincipal = $db->query("SELECT id FROM almacenes WHERE principal=1 LIMIT 1")->fetchColumn() ?: null;
+        } catch (\Throwable $e) { /* módulo de traslados no instalado */ }
 
-            $s = $db->prepare("SELECT stock_actual FROM productos WHERE id=?");
-            $s->execute([$pid]);
-            $antes   = (float)$s->fetchColumn();
-            $despues = $antes + $cant;
+        // ── Toda la compra es atómica: o se guarda completa, o no se guarda nada ──
+        $db->beginTransaction();
+        try {
+            // 1) Crear primero la compra (cabecera), luego detalles y stock.
+            $db->prepare("INSERT INTO compras (proveedor,tipo_doc,nro_doc,total,metodo_pago,notas,usuario_id) VALUES (?,?,?,?,?,?,?)")
+               ->execute([$proveedor,$tipoDoc,$nroDoc,$total,$metPago,$notas,$user['id']]);
+            $compraId = $db->lastInsertId();
 
-            $db->prepare("UPDATE productos SET stock_actual=?, precio_costo=? WHERE id=?")->execute([$despues, $pu, $pid]);
-            $db->prepare("INSERT INTO kardex (producto_id,tipo,cantidad,stock_antes,stock_despues,precio_unit,motivo,referencia,usuario_id) VALUES (?,?,?,?,?,?,?,?,?)")
-               ->execute([$pid,'entrada',$cant,$antes,$despues,$pu,'Compra a proveedor',$nroDoc ?: 'COMPRA',$user['id']]);
+            foreach ($items as $item) {
+                $pid  = (int)$item['producto_id'];
+                $cant = (float)$item['cantidad'];
+                $pu   = (float)$item['precio_unit'];
+
+                if ($pid <= 0 || $cant <= 0) {
+                    throw new RuntimeException('Línea de compra inválida.');
+                }
+
+                // Bloquear la fila del producto para evitar condiciones de carrera
+                $s = $db->prepare("SELECT id, stock_actual FROM productos WHERE id=? FOR UPDATE");
+                $s->execute([$pid]);
+                $p = $s->fetch();
+                if (!$p) {
+                    throw new RuntimeException('Producto no encontrado (ID '.$pid.').');
+                }
+                $antes   = (float)$p['stock_actual'];
+                $despues = $antes + $cant;
+
+                // Detalle de la compra
+                $db->prepare("INSERT INTO compra_detalle (compra_id,producto_id,cantidad,precio_unit,subtotal) VALUES (?,?,?,?,?)")
+                   ->execute([$compraId,$pid,$cant,$pu,round($cant*$pu,2)]);
+
+                // Stock global + costo
+                $db->prepare("UPDATE productos SET stock_actual=?, precio_costo=? WHERE id=?")->execute([$despues, $pu, $pid]);
+
+                // Sincronizar el stock del almacén principal (Tienda) si el módulo existe
+                if ($almacenPrincipal) {
+                    $db->prepare("UPDATE stock_almacen SET cantidad=? WHERE almacen_id=? AND producto_id=?")
+                       ->execute([$despues, $almacenPrincipal, $pid]);
+                }
+
+                // Kardex
+                $db->prepare("INSERT INTO kardex (producto_id,almacen_id,tipo,cantidad,stock_antes,stock_despues,precio_unit,motivo,referencia,usuario_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
+                   ->execute([$pid,$almacenPrincipal,'entrada',$cant,$antes,$despues,$pu,'Compra a proveedor',$nroDoc ?: 'COMPRA',$user['id']]);
+            }
+
+            // Egreso en caja si el usuario tiene su caja abierta (caja por usuario)
+            $caja = $db->prepare("SELECT id FROM cajas WHERE estado='abierta' AND usuario_id=? ORDER BY fecha DESC, id DESC LIMIT 1");
+            $caja->execute([$user['id']]);
+            $cajaId = $caja->fetchColumn();
+            if ($cajaId) {
+                $concepto = "Compra $tipoDoc".($nroDoc?" #$nroDoc":"").($proveedor?" — $proveedor":"");
+                $db->prepare("INSERT INTO movimientos_caja (caja_id,tipo,concepto,monto,referencia,usuario_id) VALUES (?,?,?,?,?,?)")
+                   ->execute([$cajaId,'egreso',$concepto,$total,$nroDoc,$user['id']]);
+            }
+
+            $db->commit();
+
+            header('Content-Type: application/json');
+            echo json_encode(['success'=>true,'compra_id'=>$compraId,'total'=>$total]);
+            exit;
+
+        } catch (\Throwable $e) {
+            $db->rollBack();
+            header('Content-Type: application/json');
+            http_response_code(422);
+            echo json_encode(['success'=>false,'error'=>$e->getMessage()]);
+            exit;
         }
-
-        // Registrar egreso en caja si hay caja abierta
-        $caja = $db->prepare("SELECT id FROM cajas WHERE fecha=CURDATE() AND estado='abierta' ORDER BY id DESC LIMIT 1");
-        $caja->execute();
-        $cajaId = $caja->fetchColumn();
-        if ($cajaId) {
-            $concepto = "Compra $tipoDoc".($nroDoc?" #$nroDoc":"").($proveedor?" — $proveedor":"");
-            $db->prepare("INSERT INTO movimientos_caja (caja_id,tipo,concepto,monto,referencia,usuario_id) VALUES (?,?,?,?,?,?)")
-               ->execute([$cajaId,'egreso',$concepto,$total,$nroDoc,$user['id']]);
-        }
-
-        // Guardar compra en tabla
-        $db->prepare("INSERT INTO compras (proveedor,tipo_doc,nro_doc,total,metodo_pago,notas,usuario_id) VALUES (?,?,?,?,?,?,?)")
-           ->execute([$proveedor,$tipoDoc,$nroDoc,$total,$metPago,$notas,$user['id']]);
-        $compraId = $db->lastInsertId();
-
-        foreach ($items as $item) {
-            $db->prepare("INSERT INTO compra_detalle (compra_id,producto_id,cantidad,precio_unit,subtotal) VALUES (?,?,?,?,?)")
-               ->execute([$compraId,(int)$item['producto_id'],(float)$item['cantidad'],(float)$item['precio_unit'],(float)$item['cantidad']*(float)$item['precio_unit']]);
-        }
-
-        header('Content-Type: application/json');
-        echo json_encode(['success'=>true,'compra_id'=>$compraId,'total'=>$total]);
-        exit;
     }
     header('Content-Type: application/json');
-    echo json_encode(['error'=>'Sin ítems']);
+    echo json_encode(['success'=>false,'error'=>'Sin ítems']);
     exit;
 }
 

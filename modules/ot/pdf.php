@@ -22,13 +22,15 @@ $ot = $db->prepare("
            te.nombre     AS tipo_equipo,
            e.marca, e.modelo, e.serial, e.color, e.descripcion AS equipo_desc,
            CONCAT(u.nombre,' ',u.apellido) AS tecnico_nombre,
-           CONCAT(uc.nombre,' ',uc.apellido) AS creador_nombre
+           CONCAT(uc.nombre,' ',uc.apellido) AS creador_nombre,
+           s.nombre AS servicio_nombre
     FROM ordenes_trabajo ot
     JOIN clientes     c  ON c.id  = ot.cliente_id
     JOIN equipos      e  ON e.id  = ot.equipo_id
     JOIN tipos_equipo te ON te.id = e.tipo_equipo_id
     LEFT JOIN usuarios u  ON u.id = ot.tecnico_id
     LEFT JOIN usuarios uc ON uc.id= ot.usuario_creador_id
+    LEFT JOIN servicios s ON s.id = ot.servicio_id
     WHERE ot.id = ?
 ");
 $ot->execute([$id]);
@@ -51,7 +53,18 @@ $empresa    = $cfg['empresa_nombre']    ?? APP_NAME;
 $empresaRuc = $cfg['empresa_ruc']       ?? '';
 $empresaTel = $cfg['empresa_telefono']  ?? '';
 $empresaDir = $cfg['empresa_direccion'] ?? '';
+$empresaEmail=$cfg['empresa_email']     ?? '';
 $moneda     = $cfg['moneda_simbolo']    ?? 'S/';
+
+// Plantilla de impresión
+$printLogo        = $cfg['print_logo']              ?? '';
+$printMostrarLogo = ($cfg['print_mostrar_logo']     ?? '1') === '1';
+$printMostrarQR   = ($cfg['print_mostrar_qr']       ?? '1') === '1';
+$printCabecera    = ($cfg['print_mostrar_cabecera'] ?? '1')==='1' ? ($cfg['print_cabecera'] ?? '') : '';
+$printCuentas     = $cfg['print_cuentas']            ?? '';
+$printInferior    = ($cfg['print_mostrar_inferior']  ?? '1')==='1' ? ($cfg['print_msg_inferior'] ?? '') : '';
+$printDespedida   = ($cfg['print_mostrar_despedida'] ?? '1')==='1' ? strtoupper($cfg['print_despedida'] ?? '¡GRACIAS POR SU PREFERENCIA!') : '';
+$printLogoUrl     = $printLogo ? UPLOAD_URL . $printLogo : '';
 
 // Labels checklist
 $checkLabels = [
@@ -329,6 +342,16 @@ $notaLegal = "El equipo deberá ser recogido en un plazo máximo de 90 días lue
   .mt12 { margin-top: 12px; }
 
   /* ── PRINT ── */
+<?php if($printInferior || $printCuentas): ?>
+  <div style="margin-top:16px;padding:10px 14px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb;font-size:10px;color:#555">
+    <?php if($printInferior): ?><div style="margin-bottom:6px"><?= htmlspecialchars($printInferior) ?></div><?php endif; ?>
+    <?php if($printCuentas): ?>
+    <div style="white-space:pre-line;font-size:9.5px">
+      <strong>Cuentas bancarias:</strong><br><?= htmlspecialchars($printCuentas) ?>
+    </div>
+    <?php endif; ?>
+  </div>
+<?php endif; ?>
   @media print {
     body { background: #fff; padding: 0; }
     .page { box-shadow: none; padding: 10mm; width: 100%; }
@@ -354,10 +377,15 @@ $notaLegal = "El equipo deberá ser recogido en un plazo máximo de 90 días lue
   <!-- ══ HEADER ══ -->
   <div class="doc-header">
     <div class="empresa-info">
+      <?php if($printMostrarLogo && $printLogoUrl): ?>
+      <img src="<?= $printLogoUrl ?>" style="max-height:56px;max-width:180px;object-fit:contain;margin-bottom:6px;display:block"/>
+      <?php endif; ?>
       <h2><?= htmlspecialchars($empresa) ?></h2>
       <?php if($empresaRuc): ?><p><strong>R.U.C.:</strong> <?= htmlspecialchars($empresaRuc) ?></p><?php endif; ?>
       <?php if($empresaDir): ?><p><?= htmlspecialchars($empresaDir) ?></p><?php endif; ?>
-      <?php if($empresaTel): ?><p>📞 <?= htmlspecialchars($empresaTel) ?></p><?php endif; ?>
+      <?php if($empresaTel): ?><p>Tel: <?= htmlspecialchars($empresaTel) ?></p><?php endif; ?>
+      <?php if($empresaEmail): ?><p><?= htmlspecialchars($empresaEmail) ?></p><?php endif; ?>
+      <?php if($printCabecera): ?><div style="margin-top:6px;font-size:10px;color:#444;padding:5px;background:#f9fafb;border-radius:3px"><?= $printCabecera ?></div><?php endif; ?>
     </div>
     <div class="doc-title-block">
       <div class="servicio-label">Orden de Servicio</div>
@@ -423,6 +451,12 @@ $notaLegal = "El equipo deberá ser recogido en un plazo máximo de 90 días lue
       <div class="lbl">Color</div>
       <div class="val"><?= htmlspecialchars($ot['color'] ?: '—') ?></div>
     </div>
+    <?php if($ot['servicio_nombre']): ?>
+    <div class="info-cell">
+      <div class="lbl">Servicio</div>
+      <div class="val"><?= htmlspecialchars($ot['servicio_nombre']) ?></div>
+    </div>
+    <?php endif; ?>
   </div>
   <?php if($ot['equipo_desc']): ?>
   <div class="info-row">

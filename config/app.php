@@ -13,15 +13,53 @@ define('ROL_ADMIN',    'admin');
 define('ROL_TECNICO',  'tecnico');
 define('ROL_VENDEDOR', 'vendedor');
 
+// Métodos de pago disponibles en el POS.
+// Para agregar uno nuevo (p.ej. "BCP", "Bitcoin"), añade una línea aquí:
+//   'bcp' => ['label' => 'BCP', 'icon' => '🏦', 'color' => 'primary'],
+// y aparecerá automáticamente en el POS y en los reportes.
+function getMetodosPago(): array {
+    return [
+        'efectivo'      => ['label'=>'Efectivo',      'icon'=>'💵', 'color'=>'success'],
+        'yape'          => ['label'=>'Yape',          'icon'=>'💜', 'color'=>'warning text-dark'],
+        'plin'          => ['label'=>'Plin',          'icon'=>'💚', 'color'=>'info'],
+        'tarjeta'       => ['label'=>'Tarjeta',       'icon'=>'💳', 'color'=>'primary'],
+        'transferencia' => ['label'=>'Transferencia', 'icon'=>'🏦', 'color'=>'secondary'],
+    ];
+}
+
 // Estados de OT
-define('ESTADOS_OT', [
-    'ingresado'     => ['label' => 'Ingresado',      'color' => 'secondary', 'icon' => 'inbox'],
-    'en_revision'   => ['label' => 'En revisión',    'color' => 'info',      'icon' => 'search'],
-    'en_reparacion' => ['label' => 'En reparación',  'color' => 'warning',   'icon' => 'tool'],
-    'listo'         => ['label' => 'Listo',           'color' => 'success',   'icon' => 'check-circle'],
-    'entregado'     => ['label' => 'Entregado',       'color' => 'primary',   'icon' => 'package'],
-    'cancelado'     => ['label' => 'Cancelado',       'color' => 'danger',    'icon' => 'x-circle'],
-]);
+// Estados OT — cargados dinámicamente desde BD si existe la tabla, sino fallback estático
+function getEstadosOT(): array {
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    try {
+        $pdo  = getDB();
+        $rows = $pdo->query("SELECT * FROM estados_ot WHERE activo=1 ORDER BY orden ASC")->fetchAll();
+        if ($rows) {
+            $cache = [];
+            foreach ($rows as $r) {
+                $cache[$r['clave']] = [
+                    'label'    => $r['label'],
+                    'color'    => $r['color'],
+                    'icon'     => $r['icono'],
+                    'es_final' => (bool)$r['es_final'],
+                ];
+            }
+            return $cache;
+        }
+    } catch (\Throwable $e) { /* tabla aún no existe */ }
+    // Fallback estático
+    $cache = [
+        'ingresado'     => ['label'=>'Ingresado',     'color'=>'secondary','icon'=>'inbox',       'es_final'=>false],
+        'en_revision'   => ['label'=>'En revisión',   'color'=>'info',     'icon'=>'search',      'es_final'=>false],
+        'en_reparacion' => ['label'=>'En reparación', 'color'=>'warning',  'icon'=>'tool',        'es_final'=>false],
+        'listo'         => ['label'=>'Listo',          'color'=>'success',  'icon'=>'check-circle','es_final'=>false],
+        'entregado'     => ['label'=>'Entregado',      'color'=>'primary',  'icon'=>'package',     'es_final'=>true],
+        'cancelado'     => ['label'=>'Cancelado',      'color'=>'danger',   'icon'=>'x-circle',    'es_final'=>true],
+    ];
+    return $cache;
+}
+define('ESTADOS_OT', getEstadosOT());
 
 // ----------------------------------------------------------
 // Autenticación

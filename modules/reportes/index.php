@@ -47,12 +47,17 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h5 class="fw-bold mb-0">Reportes y analytics</h5>
-  <form method="GET" class="d-flex gap-2 align-items-center">
-    <input type="date" name="desde" class="form-control form-control-sm" value="<?= $desde ?>"/>
-    <span class="text-muted small">a</span>
-    <input type="date" name="hasta" class="form-control form-control-sm" value="<?= $hasta ?>"/>
-    <button type="submit" class="btn btn-primary btn-sm">Aplicar</button>
-  </form>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="<?= BASE_URL ?>modules/reportes/reporte_comprobantes.php" class="btn btn-success btn-sm fw-semibold">
+      <i data-feather="download" style="width:14px;height:14px"></i> Comprobantes para Contadora (Excel)
+    </a>
+    <form method="GET" class="d-flex gap-2 align-items-center">
+      <input type="date" name="desde" class="form-control form-control-sm" value="<?= $desde ?>"/>
+      <span class="text-muted small">a</span>
+      <input type="date" name="hasta" class="form-control form-control-sm" value="<?= $hasta ?>"/>
+      <button type="submit" class="btn btn-primary btn-sm">Aplicar</button>
+    </form>
+  </div>
 </div>
 
 <!-- KPIs resumen -->

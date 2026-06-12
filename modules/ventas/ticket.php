@@ -12,10 +12,12 @@ $id = (int)($_GET['id'] ?? 0);
 
 $venta = $db->prepare("
     SELECT v.*, c.nombre AS cliente_nombre, c.ruc_dni, c.telefono, c.direccion,
-           CONCAT(u.nombre,' ',u.apellido) AS vendedor_nombre
+           CONCAT(u.nombre,' ',u.apellido) AS cajero_nombre,
+           CONCAT(COALESCE(uv.nombre,''), ' ', COALESCE(uv.apellido,'')) AS vendedora_nombre
     FROM ventas v
-    LEFT JOIN clientes c ON c.id=v.cliente_id
-    JOIN usuarios u ON u.id=v.usuario_id
+    LEFT JOIN clientes c  ON c.id  = v.cliente_id
+    JOIN  usuarios u      ON u.id  = v.usuario_id
+    LEFT JOIN usuarios uv ON uv.id = v.vendedor_id
     WHERE v.id=?");
 $venta->execute([$id]);
 $venta = $venta->fetch();
@@ -233,7 +235,7 @@ $docLabel = $tipoDocLabel[$venta['tipo_doc']] ?? 'COMPROBANTE';
     </div>
     <div class="info-cell">
       <div class="lbl">Vendedor</div>
-      <div class="val"><?= htmlspecialchars($venta['vendedor_nombre']) ?></div>
+      <div class="val"><?= htmlspecialchars(trim($venta['vendedora_nombre']) ?: $venta['cajero_nombre']) ?></div>
     </div>
   </div>
 

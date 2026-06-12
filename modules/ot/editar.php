@@ -80,19 +80,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // Registrar repuestos (borrar y reinsertar)
-    $db->prepare("DELETE FROM ot_repuestos WHERE ot_id=?")->execute([$id]);
-    $descs  = $_POST['rep_desc']   ?? [];
-    $cants  = $_POST['rep_cant']   ?? [];
-    $precios= $_POST['rep_precio'] ?? [];
-    foreach ($descs as $i => $desc2) {
-        $d = trim($desc2); $c = (float)($cants[$i]??1); $p = (float)($precios[$i]??0);
-        if (!$d) continue;
-        $db->prepare("INSERT INTO ot_repuestos (ot_id,descripcion,cantidad,precio_unit,subtotal) VALUES (?,?,?,?,?)")
-           ->execute([$id, $d, $c, $p, round($c*$p,2)]);
+    // Subir nuevos videos
+    if (!empty($_FILES['videos']['name'][0])) {
+        foreach ($_FILES['videos']['name'] as $i => $vname) {
+            if ($_FILES['videos']['error'][$i] === 0) {
+                $vData = uploadVideo([
+                    'name'     => $vname,
+                    'tmp_name' => $_FILES['videos']['tmp_name'][$i],
+                    'error'    => $_FILES['videos']['error'][$i],
+                    'size'     => $_FILES['videos']['size'][$i],
+                ], 'ot/'.$id, 10);
+                if ($vData) {
+                    $db->prepare("INSERT INTO fotos_ot (ot_id,ruta,tipo_archivo,duracion_seg,tamano_bytes,tipo) VALUES (?,?,'video',?,?,'proceso')")
+                       ->execute([$id,$vData['ruta'],$vData['duracion_seg'],$vData['tamano_bytes']]);
+                }
+            }
+        }
     }
 
-    setFlash('success', 'OT actualizada correctamente.');
+    // Registrar repuestos (borrar y reinsertar — preservando producto_id)
+    // Solo los repuestos de inventario NUEVOS (rep_nuevo=1) descuentan stock;
+    // los existentes ya fueron descontados al crearse.
+    $db->prepare("DELETE FROM ot_repuestos WHERE ot_id=?")->execute([$id]);
+    $descs   = $_POST['rep_desc']        ?? [];
+    $cants   = $_POST['rep_cant']        ?? [];
+    $precios = $_POST['rep_precio']      ?? [];
+    $prodIds = $_POST['rep_producto_id'] ?? [];
+    $nuevos  = $_POST['rep_nuevo']       ?? [];
+
+    // Almacén principal (para sincronizar stock y kardex, igual que en nueva OT)
+    $almacenPrincipal = null;
+    try {
+        $almacenPrincipal = $db->query("SELECT id FROM almacenes WHERE principal=1 LIMIT 1")->fetchColumn() ?: null;
+    } catch (\Throwable $e) { /* módulo de traslados no instalado */ }
+
+    $avisosStock = [];
+    foreach ($descs as $i => $desc2) {
+        $d = trim($desc2); $c = (float)($cants[$i]??1); $p = (float)($precios[$i]??0);
+        $pid   = (int)($prodIds[$i] ?? 0);
+        $nuevo = (int)($nuevos[$i]  ?? 0);
+        if (!$d) continue;
+        $db->prepare("INSERT INTO ot_repuestos (ot_id,producto_id,descripcion,cantidad,precio_unit,subtotal) VALUES (?,?,?,?,?,?)")
+           ->execute([$id, $pid ?: null, $d, $c, $p, round($c*$p,2)]);
+
+        // Repuesto del inventario recién agregado → descontar stock + kardex
+        if ($pid > 0 && $nuevo === 1 && $c > 0) {
+            try {
+                $prod = $db->prepare("SELECT nombre, stock_actual FROM productos WHERE id=? FOR UPDATE");
+                $prod->execute([$pid]);
+                $pr = $prod->fetch();
+                if ($pr) {
+                    $antes = (float)$pr['stock_actual'];
+                    $descontar = min($c, max($antes, 0)); // no dejar stock negativo
+                    $despues = round($antes - $descontar, 2);
+                    if ($descontar < $c) {
+                        $avisosStock[] = "«{$pr['nombre']}»: stock insuficiente (disponible {$antes}, solicitado {$c}). Se descontó solo {$descontar}.";
+                    }
+                    if ($descontar > 0) {
+                        $db->prepare("UPDATE productos SET stock_actual=? WHERE id=?")->execute([$despues, $pid]);
+                        if ($almacenPrincipal) {
+                            $db->prepare("UPDATE stock_almacen SET cantidad=? WHERE almacen_id=? AND producto_id=?")
+                               ->execute([$despues, $almacenPrincipal, $pid]);
+                        }
+                        $db->prepare("INSERT INTO kardex (producto_id,almacen_id,tipo,cantidad,stock_antes,stock_despues,precio_unit,motivo,referencia,usuario_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
+                           ->execute([$pid, $almacenPrincipal, 'salida', $descontar, $antes, $despues, $p, 'Repuesto OT', $ot['codigo_ot'], $user['id']]);
+                    }
+                }
+            } catch (\Throwable $e) { /* no bloquear la edición de la OT por un fallo de stock */ }
+        }
+    }
+
+    if (!empty($avisosStock)) {
+        setFlash('warning', 'OT actualizada. ⚠️ ' . implode('<br>⚠️ ', $avisosStock));
+    } else {
+        setFlash('success', 'OT actualizada correctamente.');
+    }
     redirect(BASE_URL.'modules/ot/ver.php?id='.$id);
 }
 
@@ -196,6 +258,19 @@ require_once __DIR__ . '/../../includes/header.php';
           <i data-feather="plus" style="width:13px;height:13px"></i> Agregar ítem
         </button>
       </div>
+      <div class="tr-card-body pb-0">
+        <!-- Buscador de inventario -->
+        <div class="position-relative mb-2">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text"><i data-feather="search" style="width:14px;height:14px"></i></span>
+            <input type="text" id="buscar-rep-inv" class="form-control"
+                   placeholder="Buscar repuesto en inventario (nombre o código)..."
+                   autocomplete="off"/>
+          </div>
+          <div id="resultados-rep-inv" class="list-group position-absolute w-100 shadow"
+               style="z-index:1050;max-height:260px;overflow-y:auto;display:none"></div>
+        </div>
+      </div>
       <div class="tr-card-body p-0">
         <table class="tr-table" id="tabla-repuestos">
           <thead><tr><th>Descripción *</th><th style="width:80px">Cant.</th><th style="width:100px">P. Unit (S/)</th><th style="width:90px">Subtotal</th><th style="width:36px"></th></tr></thead>
@@ -205,7 +280,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php else: ?>
             <?php foreach($repuestos as $r): ?>
             <tr class="rep-row">
-              <td><input type="text" name="rep_desc[]" class="form-control form-control-sm" value="<?= sanitize($r['descripcion']) ?>" required/></td>
+              <td><input type="hidden" name="rep_producto_id[]" value="<?= (int)($r['producto_id'] ?? 0) ?>"/><input type="hidden" name="rep_nuevo[]" value="0"/><input type="text" name="rep_desc[]" class="form-control form-control-sm" value="<?= sanitize($r['descripcion']) ?>" <?= !empty($r['producto_id']) ? 'readonly style="background:#f0fdf4" title="Repuesto del inventario"' : 'required' ?>/></td>
               <td><input type="number" name="rep_cant[]" class="form-control form-control-sm text-center rep-cant" value="<?= $r['cantidad'] ?>" min="0.01" step="0.01" onchange="recalcRep(this)"/></td>
               <td><input type="number" name="rep_precio[]" class="form-control form-control-sm text-end rep-precio" value="<?= $r['precio_unit'] ?>" min="0" step="0.01" onchange="recalcRep(this)"/></td>
               <td class="rep-subtotal fw-semibold text-end small pe-2"><?= formatMoney($r['subtotal']) ?></td>
@@ -239,6 +314,24 @@ require_once __DIR__ . '/../../includes/header.php';
           <input type="file" id="input-fotos" name="fotos[]" multiple accept="image/*" style="display:none"/>
         </div>
         <div class="foto-preview-grid mt-2" id="preview-fotos"></div>
+
+        <hr class="my-3"/>
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div><i data-feather="video" style="width:16px;height:16px" class="me-1"></i>
+            <span class="fw-semibold small">Agregar videos</span>
+          </div>
+          <span class="badge bg-info text-dark" style="font-size:10px">🎬 Compresión automática · máx 10MB</span>
+        </div>
+        <div class="video-drop-zone" id="video-drop"
+             style="border:2px dashed #c7d2fe;border-radius:10px;padding:18px;
+                    text-align:center;cursor:pointer;background:#f5f3ff">
+          <i data-feather="film" style="width:26px;height:26px;color:#818cf8"></i>
+          <p class="mb-0 mt-2 small fw-semibold" style="color:#6366f1">Arrastra videos o haz clic</p>
+          <input type="file" id="input-videos" name="videos[]" multiple
+                 accept="video/mp4,video/quicktime,video/avi,video/webm,.mp4,.mov,.avi,.mkv,.webm,.3gp"
+                 style="display:none"/>
+        </div>
+        <div class="video-preview-list mt-2" id="preview-videos"></div>
       </div>
     </div>
 
@@ -275,6 +368,18 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="tr-card mb-3">
       <div class="tr-card-header"><h6 class="mb-0 small fw-semibold"><i data-feather="dollar-sign" class="me-2" style="width:15px;height:15px"></i>PRESUPUESTO</h6></div>
       <div class="tr-card-body">
+        <div class="mb-2">
+          <label class="tr-form-label">Cargar desde servicio</label>
+          <select id="sel-servicio-editar" class="form-select form-select-sm" onchange="cargarServicioEditar(this.value)">
+            <option value="">— Seleccionar servicio —</option>
+            <?php
+            $svsEdit = $db->query("SELECT id, nombre, precio, garantia_dias, requiere_repuestos FROM servicios WHERE activo=1 ORDER BY nombre")->fetchAll();
+            foreach ($svsEdit as $sv): ?>
+            <option value="<?= $sv['id'] ?>"><?= sanitize($sv['nombre']) ?> — <?= formatMoney($sv['precio']) ?></option>
+            <?php endforeach; ?>
+          </select>
+          <div class="text-muted small mt-1">Al seleccionar, se precargará el precio y los repuestos del servicio.</div>
+        </div>
         <div class="mb-2">
           <label class="tr-form-label">Costo repuestos (S/)</label>
           <input type="number" id="costo_repuestos" name="costo_repuestos" class="form-control form-control-sm currency-input" step="0.01" value="<?= $ot['costo_repuestos'] ?>"/>
@@ -324,6 +429,159 @@ $pageScripts = <<<'JS'
 <script>
 initFotoDrop('foto-drop','preview-fotos','input-fotos');
 
+(function() {
+  var dropZone=document.getElementById('video-drop'),input=document.getElementById('input-videos'),
+      previewDiv=document.getElementById('preview-videos'),videoFiles=[];
+  if (!dropZone || !input || !previewDiv) return;
+  dropZone.addEventListener('click',function(){input.click();});
+  dropZone.addEventListener('dragover',function(e){e.preventDefault();dropZone.style.borderColor='#6366f1';});
+  dropZone.addEventListener('dragleave',function(){dropZone.style.borderColor='#c7d2fe';});
+  dropZone.addEventListener('drop',function(e){e.preventDefault();addVideos(e.dataTransfer.files);dropZone.style.borderColor='#c7d2fe';});
+  input.addEventListener('change',function(){addVideos(this.files);});
+  function addVideos(files){
+    Array.from(files).forEach(function(file){
+      if(file.size>200*1024*1024){alert('Video muy grande: '+file.name);return;}
+      videoFiles.push(file);
+      var idx=videoFiles.length-1,mb=(file.size/1024/1024).toFixed(1);
+      var div=document.createElement('div');div.id='vitem_'+idx;
+      div.style.cssText='display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f5f3ff;border:1px solid #c7d2fe;border-radius:8px;margin-bottom:6px';
+      div.innerHTML='<span style="font-size:22px">🎬</span><div style="flex:1;min-width:0"><div class="fw-semibold small text-truncate">'+file.name+'</div><div style="font-size:11px;color:#6b7280">'+mb+' MB — se comprimirá al guardar</div></div>'
+        +'<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="qv('+idx+')">✕</button>';
+      previewDiv.appendChild(div);
+      var dt=new DataTransfer();videoFiles.forEach(function(f){if(f)dt.items.add(f);});input.files=dt.files;
+    });
+  }
+  window.qv=function(idx){videoFiles[idx]=null;var el=document.getElementById('vitem_'+idx);if(el)el.remove();
+    var dt=new DataTransfer();videoFiles.forEach(function(f){if(f)dt.items.add(f);});input.files=dt.files;};
+})();
+
+// Cargar servicio → precargar repuestos en editar OT
+function cargarServicioEditar(id) {
+  if (!id) return;
+  if (!confirm('¿Precargar repuestos del servicio? Se agregarán a los existentes.')) return;
+
+  fetch(window.BASE_URL + 'modules/servicios/api_servicio.php?id=' + id)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) return;
+      const mo = document.getElementById('costo_mano_obra');
+      if (mo) { mo.value = parseFloat(data.precio).toFixed(2); calcularTotalOT(); }
+      const gar = document.querySelector('input[name="garantia_dias"]');
+      if (gar) gar.value = data.garantia;
+
+      if (data.requiere && data.repuestos.length > 0) {
+        const vacia = document.getElementById('fila-vacia-rep');
+        if (vacia) vacia.remove();
+        data.repuestos.forEach(r => {
+          const desc = r.nombre + (r.codigo ? ' ['+r.codigo+']' : '');
+          agregarRepuestoConDatos(desc, r.cantidad, r.precio_referencial);
+        });
+        calcTotalesRep();
+      }
+      document.getElementById('sel-servicio-editar').value = '';
+    })
+    .catch(() => {});
+}
+
+function agregarRepuestoConDatos(desc, cant, precio) {
+  const tbody = document.getElementById('tbody-repuestos');
+  const sub   = (parseFloat(cant) * parseFloat(precio)).toFixed(2);
+  const tr    = document.createElement('tr');
+  tr.className = 'rep-row';
+  tr.innerHTML = `
+    <td><input type="hidden" name="rep_producto_id[]" value="0"/><input type="hidden" name="rep_nuevo[]" value="1"/><input type="text" name="rep_desc[]" class="form-control form-control-sm" value="${escH(desc)}" required/></td>
+    <td><input type="number" name="rep_cant[]" class="form-control form-control-sm text-center rep-cant" value="${cant}" min="0.01" step="0.01" onchange="recalcRep(this)"/></td>
+    <td><input type="number" name="rep_precio[]" class="form-control form-control-sm text-end rep-precio" value="${parseFloat(precio).toFixed(2)}" min="0" step="0.01" onchange="recalcRep(this)"/></td>
+    <td class="rep-subtotal fw-semibold text-end small pe-2">S/ ${sub}</td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="this.closest('tr').remove();calcTotalesRep()">✕</button></td>`;
+  tbody.appendChild(tr);
+}
+
+function escH(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Fila de repuesto desde el INVENTARIO ─────────────────
+function agregarRepuestoInventario(prodId, desc, precio, stock) {
+  const tbody = document.getElementById('tbody-repuestos');
+  const vacia = document.getElementById('fila-vacia-rep');
+  if (vacia) vacia.remove();
+  const sub = (1 * parseFloat(precio)).toFixed(2);
+  const tr  = document.createElement('tr');
+  tr.className = 'rep-row';
+  tr.innerHTML = `
+    <td>
+      <input type="hidden" name="rep_producto_id[]" value="${prodId}"/>
+      <input type="hidden" name="rep_nuevo[]" value="1"/>
+      <input type="text" name="rep_desc[]" class="form-control form-control-sm" value="${escH(desc)}" readonly style="background:#f0fdf4" title="Repuesto del inventario"/>
+      <div class="small text-muted" style="font-size:10px">📦 Stock: ${stock}</div>
+    </td>
+    <td><input type="number" name="rep_cant[]" class="form-control form-control-sm text-center rep-cant" value="1" min="0.01" max="${stock}" step="0.01" onchange="recalcRep(this)"/></td>
+    <td><input type="number" name="rep_precio[]" class="form-control form-control-sm text-end rep-precio" value="${parseFloat(precio).toFixed(2)}" min="0" step="0.01" onchange="recalcRep(this)"/></td>
+    <td class="rep-subtotal fw-semibold text-end small pe-2">S/ ${sub}</td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="this.closest('tr').remove();calcTotalesRep()">✕</button></td>`;
+  tbody.appendChild(tr);
+  calcTotalesRep();
+}
+
+// ── Buscador de repuestos del INVENTARIO ─────────────────
+(function() {
+  const input = document.getElementById('buscar-rep-inv');
+  const lista = document.getElementById('resultados-rep-inv');
+  if (!input || !lista) return;
+  let timerInv = null;
+
+  input.addEventListener('input', function() {
+    const q = this.value.trim();
+    clearTimeout(timerInv);
+    if (q.length < 2) { lista.style.display = 'none'; lista.innerHTML = ''; return; }
+    timerInv = setTimeout(() => {
+      fetch(window.BASE_URL + 'modules/ventas/api_productos.php?accion=buscar&q=' + encodeURIComponent(q), {cache:'no-store'})
+        .then(r => r.json())
+        .then(res => {
+          const data = res.data || [];
+          if (!data.length) {
+            lista.innerHTML = '<div class="list-group-item small text-muted">Sin resultados en inventario</div>';
+            lista.style.display = '';
+            return;
+          }
+          lista.innerHTML = '';
+          data.forEach(p => {
+            const stock    = parseFloat(p.stock_actual);
+            const sinStock = stock <= 0;
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'list-group-item list-group-item-action py-2' + (sinStock ? ' disabled text-muted' : '');
+            item.innerHTML = `
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <div class="small fw-semibold">${escH(p.nombre)}</div>
+                  <div class="text-muted" style="font-size:11px">${escH(p.codigo)} · S/ ${parseFloat(p.precio_venta).toFixed(2)}</div>
+                </div>
+                <span class="badge ${sinStock ? 'bg-danger' : 'bg-success'}">${sinStock ? 'Sin stock' : 'Stock: ' + stock}</span>
+              </div>`;
+            if (!sinStock) {
+              item.addEventListener('click', () => {
+                agregarRepuestoInventario(p.id, p.nombre + ' [' + p.codigo + ']', p.precio_venta, stock);
+                input.value = '';
+                lista.style.display = 'none';
+                lista.innerHTML = '';
+              });
+            }
+            lista.appendChild(item);
+          });
+          lista.style.display = '';
+        })
+        .catch(() => {});
+    }, 300);
+  });
+
+  // Cerrar lista al hacer clic fuera
+  document.addEventListener('click', function(e) {
+    if (!lista.contains(e.target) && e.target !== input) lista.style.display = 'none';
+  });
+})();
+
 // Agregar fila de repuesto
 function agregarRepuesto() {
   const tbody = document.getElementById('tbody-repuestos');
@@ -332,7 +590,7 @@ function agregarRepuesto() {
   const tr = document.createElement('tr');
   tr.className = 'rep-row';
   tr.innerHTML = `
-    <td><input type="text" name="rep_desc[]" class="form-control form-control-sm" placeholder="Descripción del servicio o repuesto" required/></td>
+    <td><input type="hidden" name="rep_producto_id[]" value="0"/><input type="hidden" name="rep_nuevo[]" value="1"/><input type="text" name="rep_desc[]" class="form-control form-control-sm" placeholder="Descripción del servicio o repuesto" required/></td>
     <td><input type="number" name="rep_cant[]" class="form-control form-control-sm text-center rep-cant" value="1" min="0.01" step="0.01" onchange="recalcRep(this)"/></td>
     <td><input type="number" name="rep_precio[]" class="form-control form-control-sm text-end rep-precio" value="0" min="0" step="0.01" onchange="recalcRep(this)"/></td>
     <td class="rep-subtotal fw-semibold text-end small pe-2">S/ 0.00</td>

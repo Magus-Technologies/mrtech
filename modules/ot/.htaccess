@@ -1,7 +1,14 @@
-# Permitir acceso directo a archivos PHP en esta carpeta
-<IfModule mod_rewrite.c>
-  RewriteEngine On
-  RewriteCond %{REQUEST_FILENAME} -f
-  RewriteRule ^ - [L]
+# Límites para subida de archivos en OT (fotos + videos)
+<IfModule mod_php.c>
+    php_value upload_max_filesize 200M
+    php_value post_max_size 210M
+    php_value max_execution_time 300
+    php_value max_input_time 300
+    php_value memory_limit 256M
 </IfModule>
-Options -Indexes
+# Para PHP-FPM (AlmaLinux): estos valores se configuran en php-fpm pool o php.ini
+# Si el servidor usa PHP-FPM (que no soporta php_value en .htaccess),
+# crear un archivo /etc/php-fpm.d/ot_upload.conf con:
+# php_value[upload_max_filesize] = 200M
+# php_value[post_max_size] = 210M
+# php_value[max_execution_time] = 300

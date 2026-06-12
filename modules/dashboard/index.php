@@ -38,6 +38,18 @@ $s = $db->prepare("SELECT COUNT(*) FROM ordenes_trabajo WHERE DATE_FORMAT(create
 $s->execute([$mes]);
 $kpi['ot_mes'] = $s->fetchColumn();
 
+// Conteo de OTs activas por servicio (para botones de acceso rápido)
+$servicios_dashboard = $db->query("
+  SELECT s.id, s.nombre, s.categoria,
+         COUNT(ot.id) as total_activas
+  FROM servicios s
+  LEFT JOIN ordenes_trabajo ot ON ot.servicio_id = s.id
+       AND ot.estado NOT IN ('entregado','cancelado')
+  WHERE s.activo = 1
+  GROUP BY s.id, s.nombre, s.categoria
+  ORDER BY total_activas DESC, s.nombre ASC
+")->fetchAll();
+
 // OTs por estado para kanban
 $stmt = $db->query("
   SELECT ot.id, ot.codigo_ot, ot.estado, ot.fecha_estimada,
@@ -167,6 +179,67 @@ require_once __DIR__ . '/../../includes/header.php';
           <div class="kpi-label">OTs este mes</div>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Acceso rápido por servicio -->
+<?php
+// Paleta de colores por categoría
+$cat_colors = [
+  'mantenimiento' => ['btn' => 'btn-success',    'badge' => 'bg-success',    'icon' => 'tool'],
+  'diagnostico'   => ['btn' => 'btn-info',       'badge' => 'bg-info',       'icon' => 'search'],
+  'instalacion'   => ['btn' => 'btn-warning',    'badge' => 'bg-warning',    'icon' => 'settings'],
+  'reparacion'    => ['btn' => 'btn-danger',     'badge' => 'bg-danger',     'icon' => 'zap'],
+  ''              => ['btn' => 'btn-secondary',  'badge' => 'bg-secondary',  'icon' => 'clipboard'],
+];
+// Etiquetas de categoría
+$cat_labels = [
+  'mantenimiento' => 'Mantenimiento',
+  'diagnostico'   => 'Diagnóstico',
+  'instalacion'   => 'Instalación',
+  'reparacion'    => 'Reparación',
+];
+?>
+<div class="tr-card mb-4">
+  <div class="tr-card-header">
+    <h6 class="mb-0 fw-semibold">
+      <i data-feather="grid" class="me-2" style="width:17px;height:17px"></i>
+      Acceso rápido por servicio
+      <small class="text-muted fw-normal ms-2" style="font-size:12px">— OTs activas</small>
+    </h6>
+  </div>
+  <div class="tr-card-body">
+    <div class="d-flex flex-wrap gap-2">
+      <?php foreach ($servicios_dashboard as $sv):
+        $cat   = $sv['categoria'] ?: '';
+        $style = $cat_colors[$cat] ?? $cat_colors[''];
+        $count = (int)$sv['total_activas'];
+        $nombre_corto = mb_strlen($sv['nombre']) > 30 ? mb_substr($sv['nombre'],0,28).'…' : $sv['nombre'];
+        $url   = BASE_URL . 'modules/ot/index.php?servicio_id=' . $sv['id'];
+      ?>
+      <a href="<?= $url ?>" class="btn <?= $style['btn'] ?> btn-sm position-relative servicio-btn"
+         title="<?= sanitize($sv['nombre']) ?> — ver OTs activas"
+         style="padding-right:2rem; font-weight:500">
+        <i data-feather="<?= $style['icon'] ?>" style="width:13px;height:13px" class="me-1"></i>
+        <?= sanitize($nombre_corto) ?>
+        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-dark"
+              style="font-size:10px; min-width:20px">
+          <?= $count ?>
+        </span>
+      </a>
+      <?php endforeach; ?>
+    </div>
+    <!-- Leyenda de colores -->
+    <div class="mt-3 d-flex flex-wrap gap-3" style="font-size:11px; color:#6b7280">
+      <?php foreach ($cat_labels as $k => $label):
+        $s = $cat_colors[$k];
+      ?>
+      <span class="d-flex align-items-center gap-1">
+        <span class="badge <?= $s['badge'] ?>" style="width:10px;height:10px;padding:0;border-radius:50%">&nbsp;</span>
+        <?= $label ?>
+      </span>
+      <?php endforeach; ?>
     </div>
   </div>
 </div>

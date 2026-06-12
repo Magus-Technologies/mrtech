@@ -19,6 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
   <link href="<?= BASE_URL ?>assets/css/app.css" rel="stylesheet"/>
+  <script>window.BASE_URL = '<?= BASE_URL ?>';</script>
 </head>
 <body class="tr-body">
 
@@ -57,18 +58,52 @@
       <i data-feather="shopping-cart"></i><span>Punto de venta</span>
     </a>
     <a href="<?= BASE_URL ?>modules/ventas/index.php" class="tr-nav-item">
-      <i data-feather="list"></i><span>Historial ventas</span>
+      <i data-feather="list"></i><span>Ventas</span>
     </a>
+    <?php if($rol===ROL_ADMIN): ?>
+    <a href="<?= BASE_URL ?>modules/ventas/reporte_vendedoras.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'reporte_vendedoras')!==false?'active':'' ?>">
+      <i data-feather="bar-chart-2"></i><span>Reporte vendedoras</span>
+    </a>
+    <a href="<?= BASE_URL ?>modules/descuentos/index.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'descuentos')!==false?'active':'' ?>">
+      <i data-feather="percent"></i><span>Códigos descuento</span>
+    </a>
+    <?php endif; ?>
+    <?php if($rol === ROL_VENDEDOR): ?>
+    <a href="<?= BASE_URL ?>modules/caja/index.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'/caja/')!==false?'active':'' ?>">
+      <i data-feather="dollar-sign"></i><span>Mi caja</span>
+    </a>
+    <?php endif; ?>
     <?php endif; ?>
 
     <?php if(in_array($rol,[ROL_ADMIN,ROL_TECNICO])): ?>
+    <div class="tr-nav-group">Catálogo público</div>
+    <a href="<?= BASE_URL ?>modules/catalogo/index.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'catalogo')!==false?'active':'' ?>">
+      <i data-feather="shopping-bag"></i><span>Catálogo</span>
+    </a>
+    <a href="<?= BASE_URL ?>public/catalogo/" target="_blank" class="tr-nav-item">
+      <i data-feather="external-link"></i><span>Ver catálogo</span>
+    </a>
+
     <div class="tr-nav-group">Inventario</div>
-    <a href="<?= BASE_URL ?>modules/inventario/index.php" class="tr-nav-item">
+    <a href="<?= BASE_URL ?>modules/inventario/index.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'inventario')!==false && strpos($_SERVER['REQUEST_URI'],'categorias')===false?'active':'' ?>">
       <i data-feather="package"></i><span>Productos</span>
+    </a>
+    <a href="<?= BASE_URL ?>modules/categorias/index.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'categorias')!==false?'active':'' ?>">
+      <i data-feather="tag"></i><span>Categorías</span>
     </a>
     <a href="<?= BASE_URL ?>modules/compras/index.php"
        class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'compras')!==false?'active':'' ?>">
       <i data-feather="truck"></i><span>Compras</span>
+    </a>
+    <a href="<?= BASE_URL ?>modules/traslados/index.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'traslados')!==false?'active':'' ?>">
+      <i data-feather="repeat"></i><span>Traslados</span>
     </a>
     <a href="<?= BASE_URL ?>modules/inventario/kardex.php" class="tr-nav-item">
       <i data-feather="bar-chart-2"></i><span>Kardex</span>
@@ -86,6 +121,14 @@
       <i data-feather="users"></i><span>Clientes</span>
     </a>
 
+    <?php if(in_array($rol,[ROL_ADMIN,ROL_TECNICO])): ?>
+    <div class="tr-nav-group">Servicios</div>
+    <a href="<?= BASE_URL ?>modules/servicios/index.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'servicios')!==false?'active':'' ?>">
+      <i data-feather="briefcase"></i><span>Servicios</span>
+    </a>
+    <?php endif; ?>
+
     <?php if($rol === ROL_ADMIN): ?>
     <div class="tr-nav-group">Administración</div>
     <a href="<?= BASE_URL ?>modules/caja/index.php" class="tr-nav-item">
@@ -94,11 +137,23 @@
     <a href="<?= BASE_URL ?>modules/reportes/index.php" class="tr-nav-item">
       <i data-feather="trending-up"></i><span>Reportes</span>
     </a>
+    <a href="<?= BASE_URL ?>modules/reportes/reporte_comprobantes.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'reporte_comprobantes')!==false?'active':'' ?>">
+      <i data-feather="file-text"></i><span>Reporte comprobantes</span>
+    </a>
     <a href="<?= BASE_URL ?>modules/tecnicos/index.php" class="tr-nav-item">
       <i data-feather="user-check"></i><span>Técnicos</span>
     </a>
     <a href="<?= BASE_URL ?>modules/garantias/index.php" class="tr-nav-item">
       <i data-feather="shield"></i><span>Garantías</span>
+    </a>
+    <a href="<?= BASE_URL ?>modules/estados/index.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'estados')!==false?'active':'' ?>">
+      <i data-feather="tag"></i><span>Estados OT</span>
+    </a>
+    <a href="<?= BASE_URL ?>modules/configuracion/plantilla_impresion.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'plantilla_impresion')!==false?'active':'' ?>">
+      <i data-feather="printer"></i><span>Plantilla impresión</span>
     </a>
     <a href="<?= BASE_URL ?>modules/configuracion/index.php" class="tr-nav-item">
       <i data-feather="settings"></i><span>Configuración</span>
@@ -113,8 +168,10 @@
         <div class="fw-semibold text-truncate"><?= sanitize($u['nombre']) ?></div>
         <div class="text-muted" style="font-size:11px"><?= ucfirst($u['rol']) ?></div>
       </div>
-      <a href="<?= BASE_URL ?>modules/auth/logout.php" title="Cerrar sesión">
-        <i data-feather="log-out" class="text-muted"></i>
+      <a href="<?= BASE_URL ?>modules/auth/logout.php" title="Cerrar sesión"
+         class="btn btn-light btn-sm d-flex align-items-center gap-1 fw-semibold"
+         style="white-space:nowrap;font-size:12px">
+        <i data-feather="log-out" style="width:14px;height:14px"></i> Salir
       </a>
     </div>
   </div>
@@ -128,6 +185,17 @@
     <button class="btn btn-sm btn-light" id="sidebar-toggle">
       <i data-feather="menu"></i>
     </button>
+    <?php
+      // Botón volver: se oculta en el dashboard (página inicial)
+      $esDashboard = strpos($_SERVER['REQUEST_URI'], 'dashboard') !== false;
+      if (!$esDashboard):
+    ?>
+    <button class="btn btn-sm btn-light ms-2 d-flex align-items-center gap-1"
+            onclick="history.back()" title="Volver atrás">
+      <i data-feather="arrow-left" style="width:15px;height:15px"></i>
+      <span class="d-none d-md-inline small">Volver</span>
+    </button>
+    <?php endif; ?>
     <nav aria-label="breadcrumb" class="ms-3">
       <ol class="breadcrumb mb-0">
         <?php foreach ($breadcrumb ?? [] as $item): ?>

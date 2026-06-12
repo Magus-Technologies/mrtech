@@ -2,11 +2,12 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../config/app.php';
 requireLogin();
-requireRole([ROL_ADMIN]);
+requireRole([ROL_ADMIN, ROL_VENDEDOR]);
 
-$db   = getDB();
-$user = currentUser();
-$hoy  = date('Y-m-d');
+$db      = getDB();
+$user    = currentUser();
+$esAdmin = ($user['rol'] === ROL_ADMIN);
+$hoy     = date('Y-m-d');
 
 $billetes = [200, 100, 50, 20, 10];
 $monedas  = [5.00, 2.00, 1.00, 0.50, 0.20, 0.10];
@@ -49,10 +50,12 @@ function getDenominacionesPost(array $data, array $billetes, array $monedas, str
 // ABRIR CAJA
 // ════════════════════════════════════════════════════════
 if (isset($_POST['action']) && $_POST['action'] === 'abrir') {
-    // Verificar si hay caja abierta (de cualquier fecha)
-    $cajaAbierta = $db->query("SELECT id, fecha FROM cajas WHERE estado='abierta' ORDER BY fecha DESC LIMIT 1")->fetch();
+    // Verificar si ESTE usuario ya tiene una caja abierta (cada usuario tiene su propia caja)
+    $stAb = $db->prepare("SELECT id, fecha FROM cajas WHERE estado='abierta' AND usuario_id=? ORDER BY fecha DESC LIMIT 1");
+    $stAb->execute([$user['id']]);
+    $cajaAbierta = $stAb->fetch();
     if ($cajaAbierta) {
-        setFlash('danger', '⚠️ Hay una caja abierta del ' . date('d/m/Y', strtotime($cajaAbierta['fecha'])) . '. Debes cerrarla antes de abrir una nueva.');
+        setFlash('danger', '⚠️ Tienes una caja abierta del ' . date('d/m/Y', strtotime($cajaAbierta['fecha'])) . '. Debes cerrarla antes de abrir una nueva.');
         redirect(BASE_URL . 'modules/caja/index.php');
     }
 
@@ -70,6 +73,16 @@ if (isset($_POST['action']) && $_POST['action'] === 'abrir') {
 // ════════════════════════════════════════════════════════
 if (isset($_POST['action']) && $_POST['action'] === 'cerrar') {
     $cajaId      = (int)$_POST['caja_id'];
+
+    // Seguridad: el vendedor solo puede cerrar SU propia caja
+    $own = $db->prepare("SELECT usuario_id FROM cajas WHERE id=?");
+    $own->execute([$cajaId]);
+    $duenoCaja = (int)$own->fetchColumn();
+    if (!$esAdmin && $duenoCaja !== (int)$user['id']) {
+        setFlash('danger', '⛔ No puedes cerrar una caja que no es tuya.');
+        redirect(BASE_URL . 'modules/caja/index.php');
+    }
+
     $saldoCierre = calcTotalDenominaciones($_POST, $billetes, $monedas, 'ci_');
     $dens        = getDenominacionesPost($_POST, $billetes, $monedas, 'ci_');
 
@@ -104,6 +117,16 @@ if (isset($_POST['action']) && $_POST['action'] === 'cerrar') {
 // ════════════════════════════════════════════════════════
 if (isset($_POST['action']) && $_POST['action'] === 'movimiento') {
     $cajaId = (int)$_POST['caja_id'];
+
+    // Seguridad: el vendedor solo registra movimientos en SU propia caja
+    $own = $db->prepare("SELECT usuario_id FROM cajas WHERE id=? AND estado='abierta'");
+    $own->execute([$cajaId]);
+    $duenoCaja = (int)$own->fetchColumn();
+    if (!$duenoCaja || (!$esAdmin && $duenoCaja !== (int)$user['id'])) {
+        setFlash('danger', '⛔ No puedes registrar movimientos en esa caja.');
+        redirect(BASE_URL . 'modules/caja/index.php');
+    }
+
     $db->prepare("INSERT INTO movimientos_caja (caja_id,tipo,concepto,monto,referencia,usuario_id) VALUES (?,?,?,?,?,?)")
        ->execute([$cajaId, $_POST['tipo'], trim($_POST['concepto']), (float)$_POST['monto'], trim($_POST['referencia'] ?? ''), $user['id']]);
     setFlash('success', 'Movimiento registrado.');
@@ -114,13 +137,33 @@ if (isset($_POST['action']) && $_POST['action'] === 'movimiento') {
 // CARGAR DATOS
 // ════════════════════════════════════════════════════════
 
-// Caja abierta (de cualquier fecha)
-$cajaAbierta = $db->query("SELECT * FROM cajas WHERE estado='abierta' ORDER BY fecha DESC LIMIT 1")->fetch();
+// Caja abierta DEL USUARIO ACTUAL (de cualquier fecha)
+$stAb = $db->prepare("SELECT * FROM cajas WHERE estado='abierta' AND usuario_id=? ORDER BY fecha DESC LIMIT 1");
+$stAb->execute([$user['id']]);
+$cajaAbierta = $stAb->fetch();
 
-// Caja de hoy (abierta o cerrada)
-$cajaHoy = $db->prepare("SELECT * FROM cajas WHERE fecha=? ORDER BY id DESC LIMIT 1");
-$cajaHoy->execute([$hoy]);
+// Caja de hoy DEL USUARIO ACTUAL (abierta o cerrada)
+$cajaHoy = $db->prepare("SELECT * FROM cajas WHERE fecha=? AND usuario_id=? ORDER BY id DESC LIMIT 1");
+$cajaHoy->execute([$hoy, $user['id']]);
 $cajaHoy = $cajaHoy->fetch();
+
+// ── ADMIN: ver todas las cajas abiertas de otros usuarios ──
+$cajasOtros = [];
+if ($esAdmin) {
+    $stOtros = $db->prepare("
+        SELECT ca.*,
+               CONCAT(u.nombre,' ',u.apellido) AS usuario_nombre,
+               u.rol AS usuario_rol,
+               (SELECT COALESCE(SUM(monto),0) FROM movimientos_caja WHERE caja_id=ca.id AND tipo='ingreso') AS ing_real,
+               (SELECT COALESCE(SUM(monto),0) FROM movimientos_caja WHERE caja_id=ca.id AND tipo='egreso')  AS egr_real
+        FROM cajas ca
+        JOIN usuarios u ON u.id = ca.usuario_id
+        WHERE ca.estado='abierta' AND ca.usuario_id != ?
+        ORDER BY ca.fecha DESC
+    ");
+    $stOtros->execute([$user['id']]);
+    $cajasOtros = $stOtros->fetchAll();
+}
 
 // La caja activa para mostrar movimientos es la abierta (aunque sea de ayer)
 $cajaActiva = $cajaAbierta ?: $cajaHoy;
@@ -138,17 +181,19 @@ if ($cajaActiva) {
     $movimientos = $m->fetchAll();
 }
 
-// Historial — con ingresos y egresos calculados correctamente
-$historial = $db->query("
+// Historial — admin ve TODAS las cajas; vendedor solo las suyas
+$sqlHist = "
     SELECT ca.*,
            CONCAT(u.nombre,' ',u.apellido) AS usuario_nombre,
            (SELECT COALESCE(SUM(monto),0) FROM movimientos_caja WHERE caja_id=ca.id AND tipo='ingreso') AS ing_real,
            (SELECT COALESCE(SUM(monto),0) FROM movimientos_caja WHERE caja_id=ca.id AND tipo='egreso')  AS egr_real
     FROM cajas ca
     JOIN usuarios u ON u.id = ca.usuario_id
+    " . ($esAdmin ? "" : "WHERE ca.usuario_id = " . (int)$user['id']) . "
     ORDER BY ca.fecha DESC, ca.id DESC
     LIMIT 30
-")->fetchAll();
+";
+$historial = $db->query($sqlHist)->fetchAll();
 
 $densApertura = $cajaActiva ? json_decode($cajaActiva['denominaciones_apertura'] ?? '{}', true) : [];
 
@@ -243,7 +288,82 @@ function resumeDenominaciones(array $dens, array $billetes, array $monedas): str
 }
 ?>
 
-<h5 class="fw-bold mb-3">Caja diaria — <?= date('d/m/Y') ?></h5>
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+  <h5 class="fw-bold mb-0"><?= $esAdmin ? 'Caja diaria' : 'Mi caja' ?> — <?= date('d/m/Y') ?></h5>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="<?= BASE_URL ?>modules/caja/historial.php" class="btn btn-outline-secondary btn-sm">
+      <i data-feather="calendar" style="width:14px;height:14px"></i> Ver cajas anteriores
+    </a>
+    <?php if ($cajaActiva): ?>
+    <a href="<?= BASE_URL ?>modules/caja/reporte_pdf.php?id=<?= $cajaActiva['id'] ?>" target="_blank" class="btn btn-danger btn-sm">
+      <i data-feather="file-text" style="width:14px;height:14px"></i> Reporte PDF
+    </a>
+    <?php endif; ?>
+    <?php if ($esAdmin): ?>
+    <a href="<?= BASE_URL ?>modules/reportes/reporte_comprobantes.php" class="btn btn-success btn-sm">
+      <i data-feather="download" style="width:14px;height:14px"></i> Comprobantes Excel
+    </a>
+    <?php endif; ?>
+  </div>
+</div>
+
+<?php if ($esAdmin && !empty($cajasOtros)): ?>
+<!-- ══════════ ADMIN: CAJAS ABIERTAS DE OTROS USUARIOS ══════════ -->
+<div class="tr-card mb-3">
+  <div class="tr-card-header">
+    <h6 class="mb-0 small fw-semibold">🗃️ CAJAS ABIERTAS DE VENDEDORES</h6>
+    <span class="badge bg-success"><?= count($cajasOtros) ?> abierta<?= count($cajasOtros)>1?'s':'' ?></span>
+  </div>
+  <div class="tr-card-body p-0" style="overflow:hidden">
+    <div class="table-responsive-wrapper" style="overflow-x:auto">
+      <table class="tr-table">
+        <thead>
+          <tr>
+            <th>Usuario</th>
+            <th>Fecha</th>
+            <th>S. Inicial</th>
+            <th>Ingresos</th>
+            <th>Egresos</th>
+            <th>Saldo esperado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach($cajasOtros as $co):
+            $saldoCo = round((float)$co['saldo_inicial'] + (float)$co['ing_real'] - (float)$co['egr_real'], 2);
+          ?>
+          <tr>
+            <td class="fw-semibold small"><?= sanitize($co['usuario_nombre']) ?>
+              <span class="badge bg-light text-dark border ms-1"><?= ucfirst($co['usuario_rol']) ?></span>
+            </td>
+            <td class="small"><?= formatDate($co['fecha']) ?>
+              <?php if($co['fecha'] !== $hoy): ?><span class="badge bg-warning text-dark ms-1">Pendiente</span><?php endif; ?>
+            </td>
+            <td><?= formatMoney($co['saldo_inicial']) ?></td>
+            <td class="text-success fw-semibold"><?= formatMoney($co['ing_real']) ?></td>
+            <td class="text-danger fw-semibold"><?= formatMoney($co['egr_real']) ?></td>
+            <td class="fw-bold"><?= formatMoney($saldoCo) ?></td>
+            <td>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-secondary py-0"
+                        onclick="verDetalleCaja(<?= $co['id'] ?>, '<?= date('d/m/Y', strtotime($co['fecha'])) ?>')"
+                        title="Ver movimientos">
+                  <i data-feather="eye" style="width:13px;height:13px"></i>
+                </button>
+                <a href="<?= BASE_URL ?>modules/caja/reporte_pdf.php?id=<?= $co['id'] ?>"
+                   target="_blank" class="btn btn-sm btn-outline-danger py-0" title="Reporte PDF">
+                  <i data-feather="file-text" style="width:13px;height:13px"></i>
+                </a>
+              </div>
+            </td>
+          </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
 
 <?php
 // ── ALERTA: caja abierta de otro día ──────────────────────
@@ -441,11 +561,17 @@ if ($cajaAbierta && $cajaAbierta['fecha'] !== $hoy): ?>
                   </span>
                 </td>
                 <td>
-                  <button class="btn btn-sm btn-outline-secondary py-0"
-                          onclick="verDetalleCaja(<?= $h['id'] ?>, '<?= date('d/m/Y', strtotime($h['fecha'])) ?>')"
-                          title="Ver detalle">
-                    <i data-feather="eye" style="width:13px;height:13px"></i>
-                  </button>
+                  <div class="d-flex gap-1">
+                    <button class="btn btn-sm btn-outline-secondary py-0"
+                            onclick="verDetalleCaja(<?= $h['id'] ?>, '<?= date('d/m/Y', strtotime($h['fecha'])) ?>')"
+                            title="Ver detalle">
+                      <i data-feather="eye" style="width:13px;height:13px"></i>
+                    </button>
+                    <a href="<?= BASE_URL ?>modules/caja/reporte_pdf.php?id=<?= $h['id'] ?>"
+                       target="_blank" class="btn btn-sm btn-outline-danger py-0" title="Reporte PDF">
+                      <i data-feather="file-text" style="width:13px;height:13px"></i>
+                    </a>
+                  </div>
                 </td>
               </tr>
               <?php endforeach; ?>

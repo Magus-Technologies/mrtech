@@ -14,6 +14,12 @@ $caja->execute([$id]);
 $caja = $caja->fetch();
 if (!$caja) { echo '<p class="text-danger p-3">Caja no encontrada</p>'; exit; }
 
+// Seguridad: el vendedor solo puede ver el detalle de SU propia caja
+$uAct = currentUser();
+if ($uAct['rol'] !== ROL_ADMIN && (int)$caja['usuario_id'] !== (int)$uAct['id']) {
+    echo '<p class="text-danger p-3">No autorizado para ver esta caja</p>'; exit;
+}
+
 $movs = $db->prepare("
     SELECT mv.*, CONCAT(u.nombre,' ',u.apellido) AS usuario_nombre
     FROM movimientos_caja mv
