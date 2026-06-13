@@ -13,13 +13,13 @@ if (isLocal()) {
     define('DB_HOST', 'localhost');
     define('DB_NAME', 'r_mrtech');
     define('DB_USER', 'root');
-    define('DB_PASS', 'c4p1cu4$');
+    define('DB_PASS', 'c4p1cu4$$');
     define('APP_ENV', 'development');
 } else {
     define('DB_HOST', 'localhost');           // production host
     define('DB_NAME', 'r_mrtech');            // production db name
     define('DB_USER', 'root');                // production db user
-    define('DB_PASS', 'c4p1cu4$');            // production db password
+    define('DB_PASS', 'c4p1cu4$$');            // production db password
     define('APP_ENV', 'production');
 }
 
