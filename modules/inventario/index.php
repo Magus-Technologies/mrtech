@@ -163,7 +163,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <tr>
           <th>Código</th><th>Producto</th><th>Categoría</th>
           <th>Serial</th><th>Ubicación</th>
-          <th>Costo</th><th>Precio venta</th>
+          <th>Costo</th><th>Precio venta</th><th>IGV</th>
           <th><?= $f_alm ? 'Stock' : 'Stock (Tienda)' ?></th>
           <?php if (!$f_alm && !empty($almacenes)): ?><th>Por almacén</th><?php endif; ?>
           <th>Acciones</th>
@@ -173,6 +173,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php foreach ($productos as $p): 
           $stockVal  = (float)($p['stock_mostrado'] ?? $p['stock_actual']);
           $stockBajo = $stockVal <= $p['stock_minimo'];
+          $igvProd   = round($p['precio_venta'] - $p['precio_venta'] / 1.18, 2);
         ?>
         <tr class="<?= $stockBajo ? 'table-warning' : '' ?>">
           <td><code><?= sanitize($p['codigo']) ?></code></td>
@@ -185,6 +186,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <td class="small text-muted"><?= sanitize($p['ubicacion'] ?? '—') ?></td>
           <td><?= formatMoney($p['precio_costo']) ?></td>
           <td class="fw-semibold"><?= formatMoney($p['precio_venta']) ?></td>
+          <td class="small text-muted"><?= formatMoney($igvProd) ?></td>
           <td>
             <span class="fw-bold <?= $stockBajo ? 'text-danger' : 'text-success' ?>">
               <?= number_format($stockVal,0) ?>
