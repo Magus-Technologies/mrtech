@@ -109,20 +109,16 @@ class SunatBuilder
     }
 
     /**
-     * `venta_detalle.precio_unit` se asume CON IGV incluido cuando aplica_igv=true.
-     * Items vienen de JOIN con `productos` (prod_nombre, prod_codigo).
-     */
-    /**
-     * precio_unit in mrtech is stored WITHOUT IGV (POS adds 18% on top).
-     * The API expects precio WITH IGV included — Greenter divides by 1.18 internally.
-     * So we multiply by 1.18 for gravado items before sending.
+     * precio_unit already includes IGV (precio_venta stores the final price
+     * with IGV baked in at product creation time). The API expects precio WITH
+     * IGV included — Greenter divides by 1.18 internally.
      */
     private static function detalles(array $items, bool $aplica_igv = true): array
     {
         $out = [];
         foreach ($items as $i => $it) {
             $base   = (float) ($it['precio_unit'] ?? 0);
-            $precio = $aplica_igv ? round($base * 1.18, 2) : $base;
+            $precio = round($base, 2);
             $out[] = [
                 'cod_producto' => (string) ($it['prod_codigo'] ?? ($it['producto_id'] ?? ($i + 1))),
                 'unidad'       => 'NIU',

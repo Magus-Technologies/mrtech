@@ -278,8 +278,8 @@ $docLabel = $tipoDocLabel[$venta['tipo_doc']] ?? 'COMPROBANTE';
   <div class="totales-section">
     <div class="totales-inner">
       <div class="tot-row">
-        <span class="tot-label">Subtotal (sin IGV):</span>
-        <span class="tot-value"><?= $moneda ?> <?= number_format($venta['subtotal'] - $venta['igv'],2) ?></span>
+        <span class="tot-label">Base imponible:</span>
+        <span class="tot-value"><?= $moneda ?> <?= number_format($venta['subtotal'],2) ?></span>
       </div>
       <div class="tot-row">
         <span class="tot-label">IGV (<?= $igvPct ?>%):</span>

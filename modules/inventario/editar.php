@@ -10,25 +10,28 @@ $prod = $db->prepare("SELECT * FROM productos WHERE id=?");
 $prod->execute([$id]);
 $prod = $prod->fetch();
 if (!$prod) { setFlash('danger','Producto no encontrado'); redirect(BASE_URL.'modules/inventario/index.php'); }
+$precioBase = round($prod['precio_venta'] / 1.18, 2);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $precioBase  = (float)$_POST['precio_venta'];
+    $precioVenta = round($precioBase * 1.18, 2);
     $db->prepare("UPDATE productos SET nombre=?,descripcion=?,categoria_id=?,marca=?,modelo=?,serial=?,ubicacion=?,precio_costo=?,precio_venta=?,stock_minimo=?,stock_maximo=?,unidad=?,activo=? WHERE id=?")
        ->execute([
-           trim($_POST['nombre']),
-           trim($_POST['descripcion'] ?? ''),
-           (int)$_POST['categoria_id'],
-           trim($_POST['marca']     ?? ''),
-           trim($_POST['modelo']    ?? ''),
-           trim($_POST['serial']    ?? ''),
-           trim($_POST['ubicacion'] ?? ''),
-           (float)$_POST['precio_costo'],
-           (float)$_POST['precio_venta'],
-           (float)$_POST['stock_minimo'],
-           (float)$_POST['stock_maximo'],
-           trim($_POST['unidad']    ?? 'unidad'),
-           isset($_POST['activo']) ? 1 : 0,
-           $id,
-       ]);
+            trim($_POST['nombre']),
+            trim($_POST['descripcion'] ?? ''),
+            (int)$_POST['categoria_id'],
+            trim($_POST['marca']     ?? ''),
+            trim($_POST['modelo']    ?? ''),
+            trim($_POST['serial']    ?? ''),
+            trim($_POST['ubicacion'] ?? ''),
+            (float)$_POST['precio_costo'],
+            $precioVenta,
+            (float)$_POST['stock_minimo'],
+            (float)$_POST['stock_maximo'],
+            trim($_POST['unidad']    ?? 'unidad'),
+            isset($_POST['activo']) ? 1 : 0,
+            $id,
+        ]);
     setFlash('success','Producto actualizado correctamente.');
     redirect(BASE_URL.'modules/inventario/index.php');
 }
@@ -98,11 +101,12 @@ require_once __DIR__ . '/../../includes/header.php';
               <input type="number" name="precio_costo" class="form-control currency-input" step="0.01" required value="<?= $prod['precio_costo'] ?>"/>
             </div>
             <div class="col-md-4">
-              <label class="tr-form-label">Precio venta (S/) *</label>
-              <input type="number" name="precio_venta" class="form-control currency-input" step="0.01" required value="<?= $prod['precio_venta'] ?>"/>
+              <label class="tr-form-label">Precio base (S/) *</label>
+              <input type="number" name="precio_venta" class="form-control currency-input" step="0.01" required value="<?= $precioBase ?>" id="inp-precio-base"/>
+              <div class="form-text" id="txt-precio-final">Precio final: <strong>S/ <?= number_format($prod['precio_venta'], 2) ?></strong> (incluye IGV)</div>
             </div>
             <div class="col-md-4">
-              <label class="tr-form-label">Margen</label>
+              <label class="tr-form-label">Margen (sobre base)</label>
               <div class="form-control bg-light" id="txt-margen">—</div>
             </div>
             <div class="col-md-3">
@@ -140,16 +144,18 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php
 $pageScripts = <<<'JS'
 <script>
-function calcMargen() {
-  const c = parseFloat(document.querySelector('[name=precio_costo]').value)||0;
-  const v = parseFloat(document.querySelector('[name=precio_venta]').value)||0;
-  const m = c>0 ? ((v-c)/c*100).toFixed(1) : 0;
+function calcPrecios() {
+  const base  = parseFloat(document.querySelector('[name=precio_venta]').value)||0;
+  const costo = parseFloat(document.querySelector('[name=precio_costo]').value)||0;
+  const final = base * 1.18;
+  document.getElementById('txt-precio-final').innerHTML = `Precio final: <strong>S/ ${final.toFixed(2)}</strong> (incluye IGV)`;
+  const m = costo>0 ? ((base-costo)/costo*100).toFixed(1) : 0;
   const col = m>=20?'text-success':(m>=0?'text-warning':'text-danger');
   document.getElementById('txt-margen').innerHTML = `<span class="${col} fw-bold">${m}%</span>`;
 }
-document.querySelector('[name=precio_costo]').addEventListener('input',calcMargen);
-document.querySelector('[name=precio_venta]').addEventListener('input',calcMargen);
-calcMargen();
+document.querySelector('[name=precio_costo]').addEventListener('input',calcPrecios);
+document.querySelector('[name=precio_venta]').addEventListener('input',calcPrecios);
+calcPrecios();
 </script>
 JS;
 require_once __DIR__ . '/../../includes/footer.php';

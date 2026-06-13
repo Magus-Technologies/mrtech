@@ -193,7 +193,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <tfoot>
             <tr class="table-light">
               <td colspan="5"></td>
-              <td class="small text-muted">Subtotal:</td>
+              <td class="small text-muted">Base imponible:</td>
               <td class="fw-semibold"><?= formatMoney($venta['subtotal']) ?></td>
             </tr>
             <?php if($venta['descuento']>0): ?>

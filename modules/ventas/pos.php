@@ -78,13 +78,14 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='procesar_ve
     }, $pagos)));
 
     if (!empty($items)) {
-        $subtotal = 0;
+        $subtotalBruto = 0;
         foreach ($items as $item) {
-            $subtotal += (float)$item['precio'] * (float)$item['cantidad'];
+            $subtotalBruto += (float)$item['precio'] * (float)$item['cantidad'];
         }
-        $subtotal = max(0, round($subtotal - $descGlobal, 2));
-        $igv      = round($subtotal * 0.18, 2);
-        $total    = round($subtotal + $igv, 2);
+        $subtotalBruto = max(0, round($subtotalBruto - $descGlobal, 2));
+        $subtotalBase  = round($subtotalBruto / 1.18, 2);
+        $igv           = round($subtotalBruto - $subtotalBase, 2);
+        $total         = $subtotalBruto;
         $montoPag = (float)($_POST['monto_pagado'] ?? $total);
         $vuelto   = max(0, round($montoPag - $total, 2));
 
@@ -117,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='procesar_ve
                 (codigo,cliente_id,usuario_id,vendedor_id,tipo_doc,serie_doc,num_doc,subtotal,igv,descuento,codigo_descuento_id,total,metodo_pago,monto_pagado,vuelto)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
                ->execute([$codigo,$clienteId,$user['id'],$vendedorId,$tipoDoc,$serieDoc,$numDoc,
-                          $subtotal,$igv,$descGlobal,$codDescId,$total,$metPago,$montoPag,$vuelto]);
+                          $subtotalBase,$igv,$descGlobal,$codDescId,$total,$metPago,$montoPag,$vuelto]);
             $ventaId = $db->lastInsertId();
 
             foreach ($items as $item) {
@@ -343,7 +344,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <!-- Totales -->
         <div class="rounded p-3 mb-3" style="background:#f8fafc;border:1px solid #e5e7eb">
           <div class="d-flex justify-content-between small mb-1">
-            <span>Subtotal:</span><span id="txt-subtotal">S/ 0.00</span>
+            <span>Base imponible:</span><span id="txt-subtotal">S/ 0.00</span>
           </div>
           <div class="d-flex justify-content-between small mb-1">
             <span>IGV (18%):</span><span id="txt-igv">S/ 0.00</span>
@@ -481,10 +482,11 @@ function renderCarrito() {
 function calcularTotales() {
   const descManual = parseFloat(document.getElementById('descuento-global').value) || 0;
   const descTotal  = descManual + descuentoCodigo;
-  let sub  = Math.max(0, carrito.reduce((s,i) => s + i.precio*i.cantidad, 0) - descTotal);
-  const igv   = sub * 0.18;
-  const total = sub + igv;
-  document.getElementById('txt-subtotal').textContent = 'S/ ' + sub.toFixed(2);
+  let subBruto = Math.max(0, carrito.reduce((s,i) => s + i.precio*i.cantidad, 0) - descTotal);
+  const base   = subBruto / 1.18;
+  const igv    = subBruto - base;
+  const total  = subBruto;
+  document.getElementById('txt-subtotal').textContent = 'S/ ' + base.toFixed(2);
   document.getElementById('txt-igv').textContent      = 'S/ ' + igv.toFixed(2);
   document.getElementById('txt-desc').textContent     = 'S/ ' + descTotal.toFixed(2);
   document.getElementById('txt-total').textContent    = 'S/ ' + total.toFixed(2);

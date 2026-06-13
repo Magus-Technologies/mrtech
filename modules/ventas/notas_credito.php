@@ -73,6 +73,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         setFlash($r['ok'] ? 'success' : 'danger', ($r['ok'] ? 'SUNAT aceptó: ' : 'SUNAT rechazó: ') . $r['mensaje']);
         redirect(BASE_URL . 'modules/ventas/notas_credito.php?accion=ver&id=' . $nid);
     }
+
+    if ($ap === 'dar_de_baja') {
+        $nid    = (int)$_POST['id'];
+        $motivo = trim($_POST['motivo'] ?? 'ERROR EN EMISION DE COMPROBANTE');
+        $r      = (new SunatService($db))->darDeBajaNota($nid, $motivo);
+        if ($r['ok']) {
+            setFlash('success', $r['mensaje']);
+        } elseif (!empty($r['pending'])) {
+            setFlash('warning', $r['mensaje']);
+        } else {
+            setFlash('danger', 'Error al dar de baja: ' . $r['mensaje']);
+        }
+        redirect(BASE_URL . 'modules/ventas/notas_credito.php?accion=ver&id=' . $nid);
+    }
 }
 
 // ─── DESCARGAS ──────────────────────────────────────────────────────
@@ -316,6 +330,10 @@ if ($accion === 'lista') {
              class="btn btn-outline-secondary btn-sm">
             <i data-feather="download" style="width:13px;height:13px"></i> Descargar CDR
           </a>
+          <?php endif; ?>
+
+          <?php if ($nota['estado'] === 'anulada'): ?>
+          <div class="alert alert-secondary p-2 mb-0 small text-center">Esta nota fue dada de baja.</div>
           <?php endif; ?>
         </div>
       </div>

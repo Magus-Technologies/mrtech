@@ -15,6 +15,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'nueva
     }
     $stockInicial = (float)($_POST['stock_inicial'] ?? 0);
     $precioCosto  = (float)$_POST['precio_costo'];
+    $precioBase   = (float)$_POST['precio_venta'];
+    $precioVenta  = round($precioBase * 1.18, 2);
 
     // ¿Está instalado el módulo de almacenes?
     $almacenes = [];
@@ -38,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'nueva
                $codigo, trim($_POST['nombre']), trim($_POST['descripcion']??''),
                (int)$_POST['categoria_id'], trim($_POST['marca']??''), trim($_POST['modelo']??''),
                trim($_POST['serial']??''), trim($_POST['ubicacion']??''),
-               $precioCosto, (float)$_POST['precio_venta'],
+                $precioCosto, $precioVenta,
                $stockGlobal, (float)$_POST['stock_minimo'],
                (float)($_POST['stock_maximo']??100), trim($_POST['unidad']??'unidad'),
            ]);
@@ -160,9 +162,13 @@ require_once __DIR__ . '/../../includes/header.php';
             </div>
             <div class="col-12"><label class="tr-form-label">Descripción</label><textarea name="descripcion" class="form-control" rows="2"></textarea></div>
             <div class="col-md-4"><label class="tr-form-label">Precio costo (S/) *</label><input type="number" name="precio_costo" class="form-control currency-input" step="0.01" required value="0"/></div>
-            <div class="col-md-4"><label class="tr-form-label">Precio venta (S/) *</label><input type="number" name="precio_venta" class="form-control currency-input" step="0.01" required value="0"/></div>
             <div class="col-md-4">
-              <label class="tr-form-label">Margen</label>
+              <label class="tr-form-label">Precio base (S/) *</label>
+              <input type="number" name="precio_venta" class="form-control currency-input" step="0.01" required value="0" id="inp-precio-base"/>
+              <div class="form-text" id="txt-precio-final">Precio final: <strong>S/ 0.00</strong> (incluye IGV)</div>
+            </div>
+            <div class="col-md-4">
+              <label class="tr-form-label">Margen (sobre base)</label>
               <div class="form-control bg-light" id="txt-margen">0%</div>
             </div>
             <div class="col-md-4"><label class="tr-form-label">Stock inicial</label><input type="number" name="stock_inicial" class="form-control" step="0.01" value="0" min="0"/></div>
@@ -259,15 +265,17 @@ require_once __DIR__ . '/../../includes/header.php';
 $pageScripts = <<<'JS'
 <script>
 // ── Margen ───────────────────────────────────────────────
-function calcMargen() {
+function calcPrecios() {
+  const base  = parseFloat(document.querySelector('[name=precio_venta]').value)||0;
   const costo = parseFloat(document.querySelector('[name=precio_costo]').value)||0;
-  const venta = parseFloat(document.querySelector('[name=precio_venta]').value)||0;
-  const m = costo>0 ? ((venta-costo)/costo*100).toFixed(1) : 0;
+  const final = base * 1.18;
+  document.getElementById('txt-precio-final').innerHTML = `Precio final: <strong>S/ ${final.toFixed(2)}</strong> (incluye IGV)`;
+  const m = costo>0 ? ((base-costo)/costo*100).toFixed(1) : 0;
   const color = m>=20?'text-success':(m>=0?'text-warning':'text-danger');
   document.getElementById('txt-margen').innerHTML = `<span class="${color} fw-bold">${m}%</span>`;
 }
-document.querySelector('[name=precio_costo]').addEventListener('input',calcMargen);
-document.querySelector('[name=precio_venta]').addEventListener('input',calcMargen);
+document.querySelector('[name=precio_costo]').addEventListener('input',calcPrecios);
+document.querySelector('[name=precio_venta]').addEventListener('input',calcPrecios);
 
 // ── Importar desde servicio ──────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {

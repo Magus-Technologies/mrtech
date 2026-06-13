@@ -198,6 +198,75 @@ class SunatService
         return ['ok' => true, 'mensaje' => 'Nota aceptada por SUNAT.', 'cdr' => $env['cdr'] ?? ''];
     }
 
+    public function darDeBajaNota(int $notaId, string $motivo = 'ERROR EN EMISION DE COMPROBANTE'): array
+    {
+        $nota = $this->fetchNota($notaId);
+        if (!$nota) return ['ok' => false, 'mensaje' => "Nota #$notaId no encontrada."];
+        if ($nota['sunat_estado'] !== 'aceptado') return ['ok' => false, 'mensaje' => 'Solo se puede dar de baja una nota aceptada por SUNAT.'];
+        if ($nota['estado'] === 'anulada') return ['ok' => false, 'mensaje' => 'Esta nota ya fue dada de baja.'];
+
+        $tipoDoc = $nota['tipo_nota'] === 'credito' ? '07' : '08';
+        $hoy     = date('Y-m-d');
+
+        $corrSt = $this->db->prepare("SELECT COUNT(*)+1 FROM notas_credito WHERE DATE(sunat_fecha)=? AND estado='anulada'");
+        $corrSt->execute([$hoy]);
+        $correlativo = (string)(int)$corrSt->fetchColumn();
+
+        $payload = [
+            'endpoint'            => SUNAT_ENDPOINT,
+            'empresa'             => [
+                'ruc'          => SUNAT_RUC,
+                'usuario'      => SUNAT_USUARIO_SOL,
+                'clave'        => SUNAT_CLAVE_SOL,
+                'razon_social' => SUNAT_RAZON_SOCIAL,
+                'direccion'    => SUNAT_DIRECCION,
+                'ubigeo'       => SUNAT_UBIGEO,
+                'distrito'     => SUNAT_DISTRITO,
+                'provincia'    => SUNAT_PROVINCIA,
+                'departamento' => SUNAT_DEPARTAMENTO,
+            ],
+            'correlativo'         => $correlativo,
+            'fecha_generacion'    => $hoy,
+            'fecha_comunicacion'  => $hoy,
+            'detalles'            => [[
+                'tipo_doc'    => $tipoDoc,
+                'serie'       => $nota['serie'],
+                'correlativo' => (string)$nota['numero'],
+                'motivo'      => mb_strtoupper(mb_substr($motivo, 0, 100)),
+            ]],
+        ];
+
+        $res = $this->client->enviarBaja($payload);
+
+        if (empty($res['estado'])) {
+            if (!empty($res['pendiente']) && !empty($res['ticket'])) {
+                $ticket = $res['ticket'];
+                $this->db->prepare("UPDATE notas_credito SET sunat_mensaje=?, sunat_fecha=NOW() WHERE id=?")
+                         ->execute([mb_substr('BAJA_PENDIENTE:' . $ticket, 0, 1000), $notaId]);
+                return [
+                    'ok'      => false,
+                    'pending' => true,
+                    'ticket'  => $ticket,
+                    'mensaje' => 'La baja fue enviada a SUNAT pero el procesamiento todavía no terminó. '
+                               . 'Verificá el estado en el portal de SUNAT (Consulta de Validez). Ticket: ' . $ticket,
+                ];
+            }
+            $msg = $res['mensaje'] ?? 'Error al enviar baja a SUNAT.';
+            return ['ok' => false, 'mensaje' => $msg, 'detalle' => $res];
+        }
+
+        $this->db->prepare("
+            UPDATE notas_credito SET estado='anulada', sunat_cdr=?, sunat_mensaje=?, sunat_fecha=NOW() WHERE id=?
+        ")->execute([$res['cdr'] ?? null, mb_substr('BAJA: ' . ($res['mensaje'] ?? 'Aceptada'), 0, 1000), $notaId]);
+
+        if ($nota['tipo_nota'] === 'credito') {
+            $this->db->prepare("UPDATE ventas SET estado='aceptado' WHERE id=? AND estado='anulada'")
+                     ->execute([$nota['venta_id']]);
+        }
+
+        return ['ok' => true, 'mensaje' => 'Baja enviada y aceptada por SUNAT. La venta original quedó reactivada.'];
+    }
+
     public static function siguienteNumeroNota(PDO $db, string $serie): int
     {
         $st = $db->prepare("SELECT COALESCE(MAX(numero),0)+1 FROM notas_credito WHERE serie=?");
