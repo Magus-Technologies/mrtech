@@ -324,13 +324,13 @@ function cv(string $key, array $cfg, string $default = ''): string {
     try {
       var r = await fetch('<?= BASE_URL ?>modules/clientes/api_documento.php?doc='+doc, {headers:{'Accept':'application/json'}});
       var j = await r.json();
-      if(!r.ok||!j.ok){ msgEl.textContent=j.msg||'No se encontró el RUC.'; msgEl.style.color='#dc3545'; return; }
-      document.querySelector('input[name="empresa_nombre"]').value    = j.data.razon_social||'';
-      if(j.data.direccion)    document.querySelector('input[name="empresa_direccion"]').value   = j.data.direccion;
-      if(j.data.departamento) document.querySelector('input[name="sunat_departamento"]').value  = j.data.departamento;
-      if(j.data.provincia)    document.querySelector('input[name="sunat_provincia"]').value     = j.data.provincia;
-      if(j.data.distrito)     document.querySelector('input[name="sunat_distrito"]').value      = j.data.distrito;
-      msgEl.textContent='✓ '+j.data.razon_social; msgEl.style.color='#198754';
+      if(!r.ok||!j.ok){ msgEl.textContent=j.error||'No se encontró el RUC.'; msgEl.style.color='#dc3545'; return; }
+      document.querySelector('input[name="empresa_nombre"]').value    = j.razon_social||j.nombre||'';
+      if(j.direccion)    document.querySelector('input[name="empresa_direccion"]').value   = j.direccion;
+      if(j.departamento) document.querySelector('input[name="sunat_departamento"]').value  = j.departamento;
+      if(j.provincia)    document.querySelector('input[name="sunat_provincia"]').value     = j.provincia;
+      if(j.distrito)     document.querySelector('input[name="sunat_distrito"]').value      = j.distrito;
+      msgEl.textContent='✓ '+(j.razon_social||j.nombre)+(j.estado?' · '+j.estado:''); msgEl.style.color='#198754';
     } catch(err){
       msgEl.textContent='Error de red: '+err.message; msgEl.style.color='#dc3545';
     } finally {
