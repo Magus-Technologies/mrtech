@@ -226,6 +226,16 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='procesar_ve
 $clientes = $db->query("SELECT id,codigo,nombre FROM clientes WHERE activo=1 ORDER BY nombre LIMIT 500")->fetchAll();
 $vendedoras = $db->query("SELECT id, CONCAT(nombre,' ',apellido) AS nombre FROM usuarios WHERE rol IN ('vendedor','admin') AND activo=1 ORDER BY nombre")->fetchAll();
 
+// ── Siguiente correlativo por tipo de comprobante ─────────
+$nextSerie = [];
+foreach (['boleta'=>'serie_boleta','factura'=>'serie_factura'] as $tipo => $cfgKey) {
+    $serie = $db->query("SELECT valor FROM configuracion WHERE clave='$cfgKey'")->fetchColumn() ?: ($tipo==='factura'?'F001':'B001');
+    $ultCfg = (int)($db->query("SELECT valor FROM configuracion WHERE clave='sunat_ultimo_{$tipo}'")->fetchColumn() ?: 0);
+    $ultDb  = (int)$db->query("SELECT COALESCE(MAX(CAST(num_doc AS UNSIGNED)),0) FROM ventas WHERE serie_doc='$serie'")->fetchColumn();
+    $next   = max($ultCfg, $ultDb) + 1;
+    $nextSerie[$tipo] = "$serie-" . str_pad((string)$next, 8, '0', STR_PAD_LEFT);
+}
+
 $pageTitle  = 'Punto de venta — '.APP_NAME;
 $breadcrumb = [['label'=>'Ventas','url'=>BASE_URL.'modules/ventas/index.php'],['label'=>'POS','url'=>null]];
 require_once __DIR__ . '/../../includes/header.php';
@@ -333,6 +343,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <option value="factura">Factura</option>
             <option value="sin_comprobante">Sin comprobante</option>
           </select>
+          <div id="txt-correlativo" class="mt-1 small fw-bold" style="display:none"></div>
         </div>
 
         <!-- Descuento manual -->
@@ -412,6 +423,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <script>
 const BASE_URL_JS = <?php echo json_encode(BASE_URL); ?>;
 const METODOS_PAGO = <?php echo json_encode(getMetodosPago()); ?>;
+const NEXT_SERIE = <?php echo json_encode($nextSerie); ?>;
 let carrito = [];
 let descuentoCodigo = 0;  // monto de descuento del código aplicado
 
@@ -533,6 +545,20 @@ function validarCodigo() {
 document.getElementById('cod-descuento').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') { e.preventDefault(); validarCodigo(); }
 });
+
+// ── Mostrar correlativo según tipo de comprobante ────────
+function actualizarCorrelativo() {
+  const tipo = document.getElementById('tipo-doc').value;
+  const el   = document.getElementById('txt-correlativo');
+  if (tipo === 'boleta' || tipo === 'factura') {
+    el.textContent = 'Próximo: ' + (NEXT_SERIE[tipo] || '—');
+    el.style.display = '';
+  } else {
+    el.style.display = 'none';
+  }
+}
+document.getElementById('tipo-doc').addEventListener('change', actualizarCorrelativo);
+actualizarCorrelativo();
 
 document.getElementById('sel-vendedora')?.addEventListener('change', function() {
   document.getElementById('cod-descuento').value = '';
