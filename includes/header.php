@@ -162,6 +162,10 @@
     <a href="<?= BASE_URL ?>modules/configuracion/index.php" class="tr-nav-item">
       <i data-feather="settings"></i><span>Configuración</span>
     </a>
+    <a href="<?= BASE_URL ?>modules/configuracion/sunat.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'configuracion/sunat')!==false?'active':'' ?>">
+      <i data-feather="shield"></i><span>Config. SUNAT</span>
+    </a>
     <?php endif; ?>
   </nav>
 
