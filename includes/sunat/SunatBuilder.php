@@ -42,7 +42,8 @@ class SunatBuilder
     {
         $tipoDocAfectado  = $venta['tipo_doc'] === 'factura' ? '01' : '03';
         $serieNumAfectado = $venta['serie_doc'] . '-' . str_pad((string) $venta['num_doc'], 8, '0', STR_PAD_LEFT);
-        $aplica_igv       = ($venta['igv'] ?? 0) > 0;
+        // Use the value stored at creation time — never re-derive it from the venta
+        $aplica_igv       = (bool)($nota['aplica_igv'] ?? ((float)($venta['igv'] ?? 0) > 0));
 
         return [
             'endpoint'              => SUNAT_ENDPOINT,

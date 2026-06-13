@@ -48,10 +48,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $numero = SunatService::siguienteNumeroNota($db, $serie);
 
+        $aplica_igv = ((float)($venta['igv'] ?? 0) > 0) ? 1 : 0;
+
         $db->prepare("
-            INSERT INTO notas_credito (venta_id, tipo_nota, serie, numero, cod_motivo, des_motivo, total)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ")->execute([$venta_id, $tipo_nota, $serie, $numero, $cod_motivo, $des_motivo, (float)$venta['total']]);
+            INSERT INTO notas_credito (venta_id, tipo_nota, serie, numero, cod_motivo, des_motivo, total, aplica_igv)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ")->execute([$venta_id, $tipo_nota, $serie, $numero, $cod_motivo, $des_motivo, (float)$venta['total'], $aplica_igv]);
 
         $notaId = (int)$db->lastInsertId();
         setFlash('success', 'Nota creada. Podés generar el XML ahora.');
