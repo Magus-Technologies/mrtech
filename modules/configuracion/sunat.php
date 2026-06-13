@@ -34,7 +34,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'sunat_usuario_sol'  => trim($_POST['sunat_usuario_sol']  ?? ''),
             'serie_boleta'       => strtoupper(trim($_POST['serie_boleta']  ?? 'B001')),
             'serie_factura'      => strtoupper(trim($_POST['serie_factura'] ?? 'F001')),
+            'sunat_ultimo_boleta'  => (int)($_POST['sunat_ultimo_boleta'] ?? 0),
+            'sunat_ultimo_factura' => (int)($_POST['sunat_ultimo_factura'] ?? 0),
         ];
+
+        // Últimos números para NC/ND (también editables)
+        foreach (['nc_factura','nc_boleta','nd_factura','nd_boleta'] as $k) {
+            $campos["sunat_ultimo_{$k}"] = (int)($_POST["sunat_ultimo_{$k}"] ?? 0);
+        }
 
         // Only update clave_sol if a new value was entered
         $nuevaClave = trim($_POST['sunat_clave_sol'] ?? '');
@@ -110,6 +117,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect(BASE_URL . 'modules/configuracion/sunat.php');
     }
 }
+
+// Último número realmente usado en DB
+function _ultNumVenta(PDO $db, string $serie): int {
+    $st = $db->prepare("SELECT COALESCE(MAX(CAST(num_doc AS UNSIGNED)),0) FROM ventas WHERE serie_doc=?");
+    $st->execute([$serie]);
+    return (int)$st->fetchColumn();
+}
+function _ultNumNota(PDO $db, string $serie): int {
+    $st = $db->prepare("SELECT COALESCE(MAX(CAST(numero AS UNSIGNED)),0) FROM notas_credito WHERE serie=?");
+    $st->execute([$serie]);
+    return (int)$st->fetchColumn();
+}
+$ultBoleta  = _ultNumVenta($db, $cfg['serie_boleta'] ?? 'B001');
+$ultFactura = _ultNumVenta($db, $cfg['serie_factura'] ?? 'F001');
+$ultNcFac   = _ultNumNota($db, SUNAT_SERIE_NC_FACTURA);
+$ultNcBol   = _ultNumNota($db, SUNAT_SERIE_NC_BOLETA);
+$ultNdFac   = _ultNumNota($db, SUNAT_SERIE_ND_FACTURA);
+$ultNdBol   = _ultNumNota($db, SUNAT_SERIE_ND_BOLETA);
 
 $certSubido = !empty($cfg['sunat_certificado_subido']);
 $certFecha  = $cfg['sunat_certificado_fecha'] ?? '';
@@ -194,22 +219,45 @@ function cv(string $key, array $cfg, string $default = ''): string {
     </div>
 
     <div class="tr-card mb-3">
-      <div class="tr-card-header"><h6 class="mb-0 small fw-semibold">SERIES DE COMPROBANTES</h6></div>
+      <div class="tr-card-header"><h6 class="mb-0 small fw-semibold">SERIES Y CORRELATIVOS</h6></div>
       <div class="tr-card-body">
-        <div class="row g-2">
-          <div class="col-md-6">
-            <label class="tr-form-label">Serie Boleta</label>
-            <input type="text" name="serie_boleta" class="form-control"
-                   value="<?= cv('serie_boleta', $cfg, 'B001') ?>" maxlength="4" placeholder="B001"/>
-            <small class="text-muted" style="font-size:11px">Debe empezar con B</small>
-          </div>
-          <div class="col-md-6">
-            <label class="tr-form-label">Serie Factura</label>
-            <input type="text" name="serie_factura" class="form-control"
-                   value="<?= cv('serie_factura', $cfg, 'F001') ?>" maxlength="4" placeholder="F001"/>
-            <small class="text-muted" style="font-size:11px">Debe empezar con F</small>
-          </div>
+        <div class="table-responsive">
+        <table class="tr-table align-middle">
+          <thead><tr><th>Tipo</th><th>Serie</th><th>Último N° (BD)</th><th>Último N° (config)</th><th>Próximo</th></tr></thead>
+          <tbody>
+            <?php
+            $series = [
+                ['label'=>'Boleta',       'serie_key'=>'serie_boleta',       'ultimo_key'=>'sunat_ultimo_boleta',  'ultimo_db'=>$ultBoleta,  'default'=>'B001'],
+                ['label'=>'Factura',      'serie_key'=>'serie_factura',      'ultimo_key'=>'sunat_ultimo_factura', 'ultimo_db'=>$ultFactura, 'default'=>'F001'],
+                ['label'=>'NC Factura',   'serie_key'=>'',                   'ultimo_key'=>'sunat_ultimo_nc_factura','ultimo_db'=>$ultNcFac,'serie_fija'=>SUNAT_SERIE_NC_FACTURA],
+                ['label'=>'NC Boleta',    'serie_key'=>'',                   'ultimo_key'=>'sunat_ultimo_nc_boleta','ultimo_db'=>$ultNcBol,'serie_fija'=>SUNAT_SERIE_NC_BOLETA],
+                ['label'=>'ND Factura',   'serie_key'=>'',                   'ultimo_key'=>'sunat_ultimo_nd_factura','ultimo_db'=>$ultNdFac,'serie_fija'=>SUNAT_SERIE_ND_FACTURA],
+                ['label'=>'ND Boleta',    'serie_key'=>'',                   'ultimo_key'=>'sunat_ultimo_nd_boleta','ultimo_db'=>$ultNdBol,'serie_fija'=>SUNAT_SERIE_ND_BOLETA],
+            ];
+            foreach ($series as $s):
+                $serieVal  = $s['serie_key'] ? cv($s['serie_key'], $cfg, $s['default']) : $s['serie_fija'];
+                $ultCfg    = (int)($cfg[$s['ultimo_key']] ?? 0);
+                $ultDb     = $s['ultimo_db'];
+                $siguiente = max($ultCfg, $ultDb) + 1;
+            ?>
+            <tr>
+              <td class="fw-semibold small"><?= $s['label'] ?></td>
+              <td><code><?= sanitize($serieVal) ?></code></td>
+              <td class="small text-muted"><?= $ultDb ?></td>
+              <td>
+                <input type="number" name="<?= $s['ultimo_key'] ?>" class="form-control form-control-sm"
+                       style="width:90px" min="0" value="<?= $ultCfg ?>"
+                       placeholder="<?= $ultDb ?>"/>
+              </td>
+              <td class="fw-bold"><?= $siguiente ?></td>
+            </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
         </div>
+        <small class="text-muted mt-2 d-block" style="font-size:11px">
+          El sistema usa el mayor entre el número de BD y el configurado. Si venías emitiendo fuera del sistema, poné el último número que usaste.
+        </small>
       </div>
     </div>
 

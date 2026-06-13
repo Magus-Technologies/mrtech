@@ -269,9 +269,24 @@ class SunatService
 
     public static function siguienteNumeroNota(PDO $db, string $serie): int
     {
-        $st = $db->prepare("SELECT COALESCE(MAX(numero),0)+1 FROM notas_credito WHERE serie=?");
+        $st = $db->prepare("SELECT COALESCE(MAX(numero),0) FROM notas_credito WHERE serie=?");
         $st->execute([$serie]);
-        return (int) $st->fetchColumn();
+        $ultDb = (int)$st->fetchColumn();
+
+        // Mapa serie -> config key
+        $cfgKeys = [
+            'FC01' => 'sunat_ultimo_nc_factura',
+            'BC01' => 'sunat_ultimo_nc_boleta',
+            'FD01' => 'sunat_ultimo_nd_factura',
+            'BD01' => 'sunat_ultimo_nd_boleta',
+        ];
+        $ultCfg = 0;
+        if (isset($cfgKeys[$serie])) {
+            $st = $db->query("SELECT valor FROM configuracion WHERE clave='{$cfgKeys[$serie]}'");
+            $ultCfg = (int)($st->fetchColumn() ?: 0);
+        }
+
+        return max($ultCfg, $ultDb) + 1;
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────
@@ -285,9 +300,12 @@ class SunatService
 
     public static function siguienteNumero(PDO $db, string $serie): int
     {
-        $st = $db->prepare("SELECT COALESCE(MAX(CAST(num_doc AS UNSIGNED)),0)+1 FROM ventas WHERE serie_doc=?");
-        $st->execute([$serie]);
-        return (int) $st->fetchColumn();
+        $ultDb  = (int)$db->query("SELECT COALESCE(MAX(CAST(num_doc AS UNSIGNED)),0) FROM ventas WHERE serie_doc='$serie'")->fetchColumn();
+
+        $cfgKey = str_starts_with($serie, 'F') ? 'sunat_ultimo_factura' : 'sunat_ultimo_boleta';
+        $ultCfg = (int)($db->query("SELECT valor FROM configuracion WHERE clave='$cfgKey'")->fetchColumn() ?: 0);
+
+        return max($ultCfg, $ultDb) + 1;
     }
 
     // ─── Persistencia ─────────────────────────────────────────────────

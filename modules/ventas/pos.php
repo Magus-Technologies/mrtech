@@ -109,9 +109,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='procesar_ve
                 $st = $db->prepare("SELECT valor FROM configuracion WHERE clave=? LIMIT 1");
                 $st->execute([$serieKey]);
                 $serieDoc = $st->fetchColumn() ?: ($tipoDoc === 'factura' ? 'F001' : 'B001');
-                $st = $db->prepare("SELECT COALESCE(MAX(CAST(num_doc AS UNSIGNED)),0)+1 FROM ventas WHERE serie_doc=?");
-                $st->execute([$serieDoc]);
-                $numDoc = (int)$st->fetchColumn();
+                $ultCfgKey = $tipoDoc === 'factura' ? 'sunat_ultimo_factura' : 'sunat_ultimo_boleta';
+                $ultCfg = (int)($db->query("SELECT valor FROM configuracion WHERE clave='$ultCfgKey'")->fetchColumn() ?: 0);
+                $ultDb  = (int)$db->query("SELECT COALESCE(MAX(CAST(num_doc AS UNSIGNED)),0) FROM ventas WHERE serie_doc='$serieDoc'")->fetchColumn();
+                $numDoc = max($ultCfg, $ultDb) + 1;
             }
 
             $db->prepare("INSERT INTO ventas
