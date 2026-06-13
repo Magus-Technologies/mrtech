@@ -4,6 +4,13 @@ require_once __DIR__ . '/../../config/app.php';
 requireLogin();
 $db = getDB();
 
+$sunatEnabled = false;
+try {
+    require_once __DIR__ . '/../../includes/config_sunat.php';
+    require_once __DIR__ . '/../../includes/sunat/SunatService.php';
+    $sunatEnabled = true;
+} catch (Throwable $e) { /* SUNAT module not available */ }
+
 // Acepta: ?id=123  O  ?codigo=VTA-2024-0001  O  ?ref=VTA-2024-0001
 $id     = (int)($_GET['id']     ?? 0);
 $codigo = trim($_GET['codigo']  ?? $_GET['ref'] ?? '');
@@ -41,6 +48,55 @@ try {
     $st->execute([$id]);
     $pagosVenta = $st->fetchAll();
 } catch (\Throwable $e) { /* tabla aún no creada */ }
+
+// SUNAT actions
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $sunatEnabled) {
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'sunat_regenerar') {
+        $svc    = new SunatService($db);
+        $result = $svc->generarXml($id);
+        setFlash($result['ok'] ? 'success' : 'danger', $result['mensaje']);
+        redirect(BASE_URL . 'modules/ventas/detalle.php?id=' . $id);
+    }
+
+    if ($action === 'sunat_enviar') {
+        $svc    = new SunatService($db);
+        $result = $svc->enviarSunat($id);
+        setFlash($result['ok'] ? 'success' : 'danger', $result['mensaje']);
+        redirect(BASE_URL . 'modules/ventas/detalle.php?id=' . $id);
+    }
+
+    if ($action === 'sunat_descargar_xml') {
+        $row = $db->prepare("SELECT sunat_xml, serie_doc, num_doc, tipo_doc FROM ventas WHERE id=?");
+        $row->execute([$id]);
+        $row = $row->fetch();
+        if ($row && !empty($row['sunat_xml'])) {
+            $filename = SunatService::nombreArchivo($row) . '.xml';
+            header('Content-Type: application/xml');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            echo base64_decode($row['sunat_xml']);
+            exit;
+        }
+        setFlash('warning', 'No hay XML disponible para descargar.');
+        redirect(BASE_URL . 'modules/ventas/detalle.php?id=' . $id);
+    }
+
+    if ($action === 'sunat_descargar_cdr') {
+        $row = $db->prepare("SELECT sunat_cdr, serie_doc, num_doc, tipo_doc FROM ventas WHERE id=?");
+        $row->execute([$id]);
+        $row = $row->fetch();
+        if ($row && !empty($row['sunat_cdr'])) {
+            $filename = 'R-' . SunatService::nombreArchivo($row) . '.zip';
+            header('Content-Type: application/zip');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            echo base64_decode($row['sunat_cdr']);
+            exit;
+        }
+        setFlash('warning', 'No hay CDR disponible para descargar.');
+        redirect(BASE_URL . 'modules/ventas/detalle.php?id=' . $id);
+    }
+}
 
 // Anular venta
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'anular') {
@@ -211,6 +267,83 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
       </div>
     </div>
+
+    <?php if ($sunatEnabled && in_array($venta['tipo_doc'], ['factura','boleta']) && $venta['estado'] !== 'anulada'): ?>
+    <?php
+        $se  = $venta['sunat_estado'] ?? null;
+        $badgeClass = match($se) {
+            'aceptado'  => 'success',
+            'rechazado' => 'danger',
+            'pendiente' => 'warning',
+            default     => 'secondary',
+        };
+        $badgeLabel = match($se) {
+            'aceptado'  => 'Aceptado',
+            'rechazado' => 'Rechazado',
+            'pendiente' => 'Pendiente de envío',
+            default     => 'No emitido',
+        };
+    ?>
+    <div class="tr-card mt-3">
+      <div class="tr-card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0 small fw-semibold">SUNAT</h6>
+        <span class="badge bg-<?= $badgeClass ?>"><?= $badgeLabel ?></span>
+      </div>
+      <div class="tr-card-body">
+        <?php if ($venta['sunat_mensaje']): ?>
+        <p class="small text-muted mb-2"><?= sanitize($venta['sunat_mensaje']) ?></p>
+        <?php endif; ?>
+
+        <div class="d-flex flex-column gap-2">
+          <?php if ($se !== 'aceptado'): ?>
+          <form method="POST">
+            <input type="hidden" name="action" value="sunat_regenerar"/>
+            <button type="submit" class="btn btn-outline-primary btn-sm w-100">
+              <i data-feather="file-text" style="width:13px;height:13px"></i>
+              <?= $se === null ? 'Generar XML' : 'Regenerar XML' ?>
+            </button>
+          </form>
+          <?php endif; ?>
+
+          <?php if (!empty($venta['sunat_xml']) && $se !== 'aceptado'): ?>
+          <form method="POST">
+            <input type="hidden" name="action" value="sunat_enviar"/>
+            <button type="submit" class="btn btn-success btn-sm w-100"
+                    data-confirm="¿Enviar este comprobante a SUNAT?">
+              <i data-feather="send" style="width:13px;height:13px"></i> Enviar a SUNAT
+            </button>
+          </form>
+          <?php endif; ?>
+
+          <?php if (!empty($venta['sunat_xml'])): ?>
+          <form method="POST">
+            <input type="hidden" name="action" value="sunat_descargar_xml"/>
+            <button type="submit" class="btn btn-outline-secondary btn-sm w-100">
+              <i data-feather="download" style="width:13px;height:13px"></i> Descargar XML
+            </button>
+          </form>
+          <?php endif; ?>
+
+          <?php if (!empty($venta['sunat_cdr'])): ?>
+          <form method="POST">
+            <input type="hidden" name="action" value="sunat_descargar_cdr"/>
+            <button type="submit" class="btn btn-outline-secondary btn-sm w-100">
+              <i data-feather="download" style="width:13px;height:13px"></i> Descargar CDR
+            </button>
+          </form>
+          <?php endif; ?>
+
+          <?php if ($se === 'aceptado'): ?>
+          <a href="<?= BASE_URL ?>modules/ventas/notas_credito.php?accion=nueva&venta_id=<?= $id ?>"
+             class="btn btn-outline-warning btn-sm w-100">
+            <i data-feather="minus-circle" style="width:13px;height:13px"></i> Nueva nota de crédito
+          </a>
+          <?php endif; ?>
+        </div>
+      </div>
+    </div>
+    <?php endif; ?>
+
   </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

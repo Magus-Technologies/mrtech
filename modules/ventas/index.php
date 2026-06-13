@@ -52,9 +52,17 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="tr-card">
   <div class="tr-card-body p-0" style="overflow:hidden"><div class="table-responsive-wrapper" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table class="tr-table">
-      <thead><tr><th>Código</th><th>Cliente</th><th>Tipo doc.</th><th>Subtotal</th><th>IGV</th><th>Total</th><th>Método</th><th>Vendedor</th><th>Estado</th><th>Fecha</th><th></th></tr></thead>
+      <thead><tr><th>Código</th><th>Cliente</th><th>Tipo doc.</th><th>Subtotal</th><th>IGV</th><th>Total</th><th>Método</th><th>Vendedor</th><th>Estado</th><th>SUNAT</th><th>Fecha</th><th></th></tr></thead>
       <tbody>
         <?php foreach($ventas as $v): ?>
+        <?php
+          $sunatBadge = match($v['sunat_estado'] ?? null) {
+              'aceptado'  => '<span class="badge bg-success">Aceptado</span>',
+              'rechazado' => '<span class="badge bg-danger">Rechazado</span>',
+              'pendiente' => '<span class="badge bg-warning text-dark">Pendiente</span>',
+              default     => in_array($v['tipo_doc'],['factura','boleta']) ? '<span class="badge bg-secondary">Sin emitir</span>' : '—',
+          };
+        ?>
         <tr>
           <td><span class="fw-semibold small text-primary"><?= sanitize($v['codigo']) ?></span></td>
           <td class="small"><?= sanitize($v['cliente_nombre'] ?? '— Consumidor final —') ?></td>
@@ -65,6 +73,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <td class="small"><?= ucfirst($v['metodo_pago']) ?></td>
           <td class="small text-muted"><?= sanitize($v['vendedor']) ?></td>
           <td><span class="badge bg-<?= $v['estado']==='completada'?'success':($v['estado']==='anulada'?'danger':'warning') ?>"><?= ucfirst($v['estado']) ?></span></td>
+          <td><?= $sunatBadge ?></td>
           <td class="small text-muted"><?= formatDateTime($v['created_at']) ?></td>
               <td>
               <div class="btn-group btn-group-sm">

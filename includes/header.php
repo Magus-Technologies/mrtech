@@ -60,6 +60,10 @@
     <a href="<?= BASE_URL ?>modules/ventas/index.php" class="tr-nav-item">
       <i data-feather="list"></i><span>Ventas</span>
     </a>
+    <a href="<?= BASE_URL ?>modules/ventas/notas_credito.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'notas_credito')!==false?'active':'' ?>">
+      <i data-feather="minus-circle"></i><span>Notas de crédito</span>
+    </a>
     <?php if($rol===ROL_ADMIN): ?>
     <a href="<?= BASE_URL ?>modules/ventas/reporte_vendedoras.php"
        class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'reporte_vendedoras')!==false?'active':'' ?>">

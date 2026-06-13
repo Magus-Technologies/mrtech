@@ -100,10 +100,23 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='procesar_ve
         try {
             $codigo = generarCodigoVenta($db);
 
+            // Assign SUNAT series and correlative (only for factura/boleta)
+            $serieDoc = null;
+            $numDoc   = null;
+            if (in_array($tipoDoc, ['factura', 'boleta'], true)) {
+                $serieKey = $tipoDoc === 'factura' ? 'serie_factura' : 'serie_boleta';
+                $st = $db->prepare("SELECT valor FROM configuracion WHERE clave=? LIMIT 1");
+                $st->execute([$serieKey]);
+                $serieDoc = $st->fetchColumn() ?: ($tipoDoc === 'factura' ? 'F001' : 'B001');
+                $st = $db->prepare("SELECT COALESCE(MAX(CAST(num_doc AS UNSIGNED)),0)+1 FROM ventas WHERE serie_doc=?");
+                $st->execute([$serieDoc]);
+                $numDoc = (int)$st->fetchColumn();
+            }
+
             $db->prepare("INSERT INTO ventas
-                (codigo,cliente_id,usuario_id,vendedor_id,tipo_doc,subtotal,igv,descuento,codigo_descuento_id,total,metodo_pago,monto_pagado,vuelto)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
-               ->execute([$codigo,$clienteId,$user['id'],$vendedorId,$tipoDoc,
+                (codigo,cliente_id,usuario_id,vendedor_id,tipo_doc,serie_doc,num_doc,subtotal,igv,descuento,codigo_descuento_id,total,metodo_pago,monto_pagado,vuelto)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+               ->execute([$codigo,$clienteId,$user['id'],$vendedorId,$tipoDoc,$serieDoc,$numDoc,
                           $subtotal,$igv,$descGlobal,$codDescId,$total,$metPago,$montoPag,$vuelto]);
             $ventaId = $db->lastInsertId();
 

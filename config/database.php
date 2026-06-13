@@ -1,10 +1,28 @@
 <?php
-// config/database.php — Conexión PDO con manejo de errores
+// config/database.php — Conexión PDO con detección local/producción
 
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'r_mrtech');
-define('DB_USER', 'root');
-define('DB_PASS', 'c4p1cu4$$');
+function isLocal(): bool {
+    $host = $_SERVER['HTTP_HOST'] ?? gethostname();
+    return str_contains($host, 'localhost')
+        || str_contains($host, '127.0.0.1')
+        || str_ends_with($host, '.test')
+        || str_ends_with($host, '.local');
+}
+
+if (isLocal()) {
+    define('DB_HOST', 'localhost');
+    define('DB_NAME', 'r_mrtech');
+    define('DB_USER', 'root');
+    define('DB_PASS', 'c4p1cu4$');
+    define('APP_ENV', 'development');
+} else {
+    define('DB_HOST', 'localhost');           // production host
+    define('DB_NAME', 'r_mrtech');            // production db name
+    define('DB_USER', 'root');                // production db user
+    define('DB_PASS', 'c4p1cu4$');            // production db password
+    define('APP_ENV', 'production');
+}
+
 define('DB_CHARSET', 'utf8mb4');
 
 // Auto-detectar dominio y protocolo (funciona en localhost Y en servidor real)
