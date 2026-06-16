@@ -236,6 +236,9 @@ foreach (['boleta'=>'serie_boleta','factura'=>'serie_factura'] as $tipo => $cfgK
     $nextSerie[$tipo] = "$serie-" . str_pad((string)$next, 8, '0', STR_PAD_LEFT);
 }
 
+// ── Formato de impresión ─────────────────────────────────
+$printFormato = $db->query("SELECT valor FROM configuracion WHERE clave='print_formato'")->fetchColumn() ?: 'a4';
+
 $pageTitle  = 'Punto de venta — '.APP_NAME;
 $breadcrumb = [['label'=>'Ventas','url'=>BASE_URL.'modules/ventas/index.php'],['label'=>'POS','url'=>null]];
 require_once __DIR__ . '/../../includes/header.php';
@@ -424,6 +427,7 @@ require_once __DIR__ . '/../../includes/header.php';
 const BASE_URL_JS = <?php echo json_encode(BASE_URL); ?>;
 const METODOS_PAGO = <?php echo json_encode(getMetodosPago()); ?>;
 const NEXT_SERIE = <?php echo json_encode($nextSerie); ?>;
+const PRINT_FORMATO = <?php echo json_encode($printFormato); ?>;
 let carrito = [];
 let descuentoCodigo = 0;  // monto de descuento del código aplicado
 
@@ -692,7 +696,7 @@ function procesarVenta() {
       if (data.success) {
         document.getElementById('ticket-codigo').textContent = data.codigo;
         document.getElementById('ticket-total').textContent  = 'Total: S/ ' + parseFloat(data.total).toFixed(2);
-        document.getElementById('btn-imprimir-ticket').href  = BASE_URL_JS + 'modules/ventas/ticket.php?id=' + data.venta_id + '&print=1';
+        document.getElementById('btn-imprimir-ticket').href  = BASE_URL_JS + 'modules/ventas/ticket.php?id=' + data.venta_id + '&print=1&formato=' + PRINT_FORMATO;
         new bootstrap.Modal(document.getElementById('modal-ticket')).show();
         limpiarCarrito();
       } else {

@@ -14,7 +14,7 @@ function cb($k, $cfg) { return ($cfg[$k] ?? '1') === '1'; }
 // Guardar
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $campos = [
-        'print_cabecera','print_cuentas','print_msg_inferior','print_despedida',
+        'print_cabecera','print_cuentas','print_msg_inferior','print_despedida','print_formato',
         'print_mostrar_logo','print_mostrar_qr',
         'print_mostrar_cabecera','print_mostrar_inferior','print_mostrar_despedida',
     ];
@@ -147,6 +147,14 @@ require_once __DIR__ . '/../../includes/header.php';
             <label class="form-check-label small" for="chk-qr">Mostrar código QR</label>
           </div>
         </div>
+      <div class="mt-3">
+        <label class="tr-form-label">Formato de impresión</label>
+        <select name="print_formato" class="form-select" onchange="setTab(this.value)">
+          <option value="a4"       <?= ($cfg['print_formato'] ?? 'a4') === 'a4' ? 'selected' : '' ?>>A4 — Carta</option>
+          <option value="ticket80" <?= ($cfg['print_formato'] ?? '') === 'ticket80' ? 'selected' : '' ?>>Voucher 80mm</option>
+          <option value="ticket58" <?= ($cfg['print_formato'] ?? '') === 'ticket58' ? 'selected' : '' ?>>Ticket 58mm</option>
+        </select>
+      </div>
       </div>
     </div>
   </div>
@@ -241,7 +249,8 @@ require_once __DIR__ . '/../../includes/header.php';
       <h6 class="mb-0 small fw-semibold ms-2">Vista previa del comprobante</h6>
       <div class="ms-auto d-flex gap-2">
         <button type="button" class="btn btn-sm btn-primary" id="tab-a4" onclick="setTab('a4')">A4</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="tab-80" onclick="setTab('80')">Voucher 80mm</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="tab-80" onclick="setTab('ticket80')">80mm</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="tab-58" onclick="setTab('ticket58')">58mm</button>
       </div>
     </div>
     <div class="tr-card-body" style="background:#e5e7eb;padding:20px;min-height:500px">
@@ -256,6 +265,12 @@ require_once __DIR__ . '/../../includes/header.php';
            padding:16px 14px;font-family:'Courier New',monospace;font-size:11px;
            box-shadow:0 2px 12px rgba(0,0,0,.15);border-radius:4px">
         <?= renderPreview80($cfg, $logoUrl) ?>
+      </div>
+      <!-- 58mm Preview -->
+      <div id="prev-58" style="display:none;background:#fff;max-width:210px;margin:0 auto;
+           padding:10px 8px;font-family:'Courier New',monospace;font-size:9px;line-height:1.3;
+           box-shadow:0 2px 12px rgba(0,0,0,.15);border-radius:4px">
+        <?= renderPreview58($cfg, $logoUrl) ?>
       </div>
     </div>
   </div>
@@ -462,6 +477,41 @@ function renderPreview80(array $cfg, string $logoUrl): string {
     <?php endif; ?>
     <?php return ob_get_clean();
 }
+
+function renderPreview58(array $cfg, string $logoUrl): string {
+    $emp  = $cfg['empresa_nombre']    ?? 'Mi Empresa';
+    $ruc  = $cfg['empresa_ruc']       ?? '';
+    $cab  = ($cfg['print_mostrar_cabecera']??'1')==='1' ? ($cfg['print_cabecera']??'') : '';
+    $inf  = ($cfg['print_mostrar_inferior']??'1')==='1' ? $cfg['print_msg_inferior']??'' : '';
+    $desp = ($cfg['print_mostrar_despedida']??'1')==='1' ? strtoupper($cfg['print_despedida']??'') : '';
+    ob_start(); ?>
+    <div style="text-align:center;margin-bottom:4px">
+      <b style="font-size:11px"><?= htmlspecialchars($emp) ?></b><br/>
+      <?php if($ruc): ?><?= htmlspecialchars($ruc) ?><br/><?php endif; ?>
+      <?php if($cab): ?><div style="margin-top:2px"><?= $cab ?></div><?php endif; ?>
+    </div>
+    <div style="text-align:center;font-weight:bold;margin-bottom:4px">
+      BOLETA DE VENTA<br/>
+      B001-00000001
+    </div>
+    <div style="border-top:1px dashed #333;border-bottom:1px dashed #333;padding:2px 0;margin-bottom:4px">
+      CLIENTE: EJEMPLO CLIENTE<br/>
+      DNI: 12345678<br/>
+      FECHA: <?= date('d/m/Y') ?>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <tr style="border-bottom:1px dashed #333"><th style="text-align:left">DESCRIP</th><th style="text-align:center">CT</th><th style="text-align:right">S/</th></tr>
+      <tr><td style="padding:1px 0">Serv. reparación</td><td style="text-align:center">1</td><td style="text-align:right">150</td></tr>
+    </table>
+    <div style="border-top:1px dashed #333;margin-top:4px;padding-top:4px">
+      BASE: S/ 127.12<br/>
+      IGV 18%: S/ 22.88<br/>
+      <b>TOTAL: S/ 150.00</b>
+    </div>
+    <?php if($inf): ?><div style="border-top:1px dashed #333;margin-top:4px;padding-top:2px"><?= htmlspecialchars($inf) ?></div><?php endif; ?>
+    <?php if($desp): ?><div style="text-align:center;font-weight:bold;margin-top:4px"><?= htmlspecialchars($desp) ?></div><?php endif; ?>
+    <?php return ob_get_clean();
+}
 ?>
 
 <script>
@@ -470,9 +520,14 @@ var tabActual = 'a4';
 function setTab(t) {
   tabActual = t;
   document.getElementById('prev-a4').style.display = t==='a4' ? '' : 'none';
-  document.getElementById('prev-80').style.display = t==='80' ? '' : 'none';
+  document.getElementById('prev-80').style.display = t==='ticket80' ? '' : 'none';
+  document.getElementById('prev-58').style.display = t==='ticket58' ? '' : 'none';
   document.getElementById('tab-a4').className = t==='a4' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline-secondary';
-  document.getElementById('tab-80').className = t==='80' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline-secondary';
+  document.getElementById('tab-80').className = t==='ticket80' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline-secondary';
+  document.getElementById('tab-58').className = t==='ticket58' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline-secondary';
+  // Sync select
+  var sel = document.querySelector('[name=print_formato]');
+  if (sel) sel.value = t;
 }
 
 function previewLogo(input) {
