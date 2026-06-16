@@ -91,14 +91,26 @@ if (isset($_POST['action']) && $_POST['action'] === 'cerrar') {
     $c->execute([$cajaId]);
     $si = (float)$c->fetchColumn();
 
-    $ing = (float)$db->prepare("SELECT COALESCE(SUM(monto),0) FROM movimientos_caja WHERE caja_id=? AND tipo='ingreso'")->execute([$cajaId]) ? 0 : 0;
     $stmt = $db->prepare("SELECT COALESCE(SUM(monto),0) FROM movimientos_caja WHERE caja_id=? AND tipo='ingreso'");
     $stmt->execute([$cajaId]); $ing = (float)$stmt->fetchColumn();
 
     $stmt2 = $db->prepare("SELECT COALESCE(SUM(monto),0) FROM movimientos_caja WHERE caja_id=? AND tipo='egreso'");
     $stmt2->execute([$cajaId]); $egr = (float)$stmt2->fetchColumn();
 
-    $esperado   = round($si + $ing - $egr, 2);
+    // El conteo físico del cajón solo contiene EFECTIVO. Los pagos por Yape/Plin/
+    // tarjeta/transferencia NO están en el cajón, así que el esperado en efectivo
+    // se calcula solo con movimientos en efectivo (evita diferencias falsas).
+    if (cajaTieneMetodoPago()) {
+        $se = $db->prepare("SELECT COALESCE(SUM(monto),0) FROM movimientos_caja WHERE caja_id=? AND tipo='ingreso' AND metodo_pago='efectivo'");
+        $se->execute([$cajaId]); $ingEfectivo = (float)$se->fetchColumn();
+        $se2 = $db->prepare("SELECT COALESCE(SUM(monto),0) FROM movimientos_caja WHERE caja_id=? AND tipo='egreso' AND metodo_pago='efectivo'");
+        $se2->execute([$cajaId]); $egrEfectivo = (float)$se2->fetchColumn();
+    } else {
+        $ingEfectivo = $ing;
+        $egrEfectivo = $egr;
+    }
+
+    $esperado   = round($si + $ingEfectivo - $egrEfectivo, 2);
     $diferencia = round($saldoCierre - $esperado, 2);
 
     $db->prepare("UPDATE cajas SET estado='cerrada', total_ingresos=?, total_egresos=?, saldo_final=?, denominaciones_cierre=?, diferencia_cierre=?, fecha_cierre=NOW() WHERE id=?")
@@ -127,8 +139,9 @@ if (isset($_POST['action']) && $_POST['action'] === 'movimiento') {
         redirect(BASE_URL . 'modules/caja/index.php');
     }
 
-    $db->prepare("INSERT INTO movimientos_caja (caja_id,tipo,concepto,monto,referencia,usuario_id) VALUES (?,?,?,?,?,?)")
-       ->execute([$cajaId, $_POST['tipo'], trim($_POST['concepto']), (float)$_POST['monto'], trim($_POST['referencia'] ?? ''), $user['id']]);
+    insertMovimientoCaja($db, $cajaId, $_POST['tipo'], trim($_POST['concepto']),
+                         (float)$_POST['monto'], trim($_POST['referencia'] ?? ''), (int)$user['id'],
+                         $_POST['metodo_pago'] ?? 'efectivo');
     setFlash('success', 'Movimiento registrado.');
     redirect(BASE_URL . 'modules/caja/index.php');
 }
@@ -201,6 +214,22 @@ $densApertura = $cajaActiva ? json_decode($cajaActiva['denominaciones_apertura']
 $totalIng    = array_sum(array_map(fn($mv) => $mv['tipo'] === 'ingreso' ? (float)$mv['monto'] : 0, $movimientos));
 $totalEgr    = array_sum(array_map(fn($mv) => $mv['tipo'] === 'egreso'  ? (float)$mv['monto'] : 0, $movimientos));
 $saldoActual = $cajaActiva ? round((float)$cajaActiva['saldo_inicial'] + $totalIng - $totalEgr, 2) : 0;
+
+// Desglose por método de pago (para el cierre del día)
+$metodosCfg     = getMetodosPago();
+$hasMetodoCaja  = cajaTieneMetodoPago();
+$ingPorMetodo   = array_fill_keys(array_keys($metodosCfg), 0.0);
+$egrPorMetodo   = array_fill_keys(array_keys($metodosCfg), 0.0);
+foreach ($movimientos as $mv) {
+    $met = $hasMetodoCaja ? ($mv['metodo_pago'] ?? 'efectivo') : 'efectivo';
+    if (!isset($ingPorMetodo[$met])) { $ingPorMetodo[$met] = 0.0; $egrPorMetodo[$met] = 0.0; }
+    if ($mv['tipo'] === 'ingreso') $ingPorMetodo[$met] += (float)$mv['monto'];
+    else                           $egrPorMetodo[$met] += (float)$mv['monto'];
+}
+$ingEfectivo      = $ingPorMetodo['efectivo'] ?? 0.0;
+$egrEfectivo      = $egrPorMetodo['efectivo'] ?? 0.0;
+// Efectivo que DEBE haber físicamente en el cajón al cerrar.
+$esperadoEfectivo = $cajaActiva ? round((float)$cajaActiva['saldo_inicial'] + $ingEfectivo - $egrEfectivo, 2) : 0;
 
 $pageTitle  = 'Caja diaria — ' . APP_NAME;
 $breadcrumb = [['label' => 'Caja', 'url' => null]];
@@ -472,6 +501,7 @@ if ($cajaAbierta && $cajaAbierta['fecha'] !== $hoy): ?>
               <tr>
                 <th>Tipo</th>
                 <th>Concepto</th>
+                <th>Método</th>
                 <th>Monto</th>
                 <th>Referencia</th>
                 <th class="hide-mobile">Usuario</th>
@@ -487,6 +517,11 @@ if ($cajaAbierta && $cajaAbierta['fecha'] !== $hoy): ?>
                   </span>
                 </td>
                 <td class="small"><?= sanitize($mv['concepto']) ?></td>
+                <td class="small">
+                  <?php $met = $hasMetodoCaja ? ($mv['metodo_pago'] ?? 'efectivo') : 'efectivo';
+                        $mc = $metodosCfg[$met] ?? ['label'=>$met,'icon'=>'','color'=>'secondary']; ?>
+                  <span class="badge bg-<?= $mc['color'] ?>"><?= $mc['icon'] ?> <?= $mc['label'] ?></span>
+                </td>
                 <td class="fw-semibold <?= $mv['tipo']==='ingreso'?'text-success':'text-danger' ?>">
                   <?= $mv['tipo']==='ingreso' ? '+' : '-' ?><?= formatMoney($mv['monto']) ?>
                 </td>
@@ -509,7 +544,7 @@ if ($cajaAbierta && $cajaAbierta['fecha'] !== $hoy): ?>
               </tr>
               <?php endforeach; ?>
               <?php if(empty($movimientos)): ?>
-              <tr><td colspan="6" class="text-center text-muted py-4">Sin movimientos registrados</td></tr>
+              <tr><td colspan="7" class="text-center text-muted py-4">Sin movimientos registrados</td></tr>
               <?php endif; ?>
             </tbody>
           </table>
@@ -615,6 +650,15 @@ if ($cajaAbierta && $cajaAbierta['fecha'] !== $hoy): ?>
             <input type="number" name="monto" class="form-control form-control-sm" step="0.01" min="0.01" required/>
           </div>
           <div class="mb-2">
+            <label class="tr-form-label">Método de pago *</label>
+            <select name="metodo_pago" class="form-select form-select-sm" required>
+              <?php foreach(getMetodosPago() as $mk => $mv): ?>
+              <option value="<?= $mk ?>"><?= $mv['icon'] ?> <?= $mv['label'] ?></option>
+              <?php endforeach; ?>
+            </select>
+            <div class="form-text small">Yape, Plin, tarjeta y transferencia NO se cuentan en el efectivo físico del cajón.</div>
+          </div>
+          <div class="mb-2">
             <label class="tr-form-label">Referencia</label>
             <input type="text" name="referencia" class="form-control form-control-sm" placeholder="Nro factura, OT, VTA..."/>
           </div>
@@ -694,6 +738,42 @@ if ($cajaAbierta && $cajaAbierta['fecha'] !== $hoy): ?>
             </div>
           </div>
 
+          <!-- Desglose por método de pago -->
+          <div class="mb-4">
+            <div class="tr-section-title mb-2">📊 Ingresos por método de pago</div>
+            <div class="table-responsive">
+              <table class="table table-sm table-bordered mb-0 small">
+                <thead class="table-light">
+                  <tr>
+                    <th>Método</th>
+                    <th class="text-end">Ingresos</th>
+                    <th class="text-end">Egresos</th>
+                    <th class="text-end">Neto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php foreach($metodosCfg as $mk => $mv):
+                    $ingM = $ingPorMetodo[$mk] ?? 0; $egrM = $egrPorMetodo[$mk] ?? 0;
+                    if ($ingM == 0 && $egrM == 0) continue;
+                    $esEfectivo = ($mk === 'efectivo');
+                  ?>
+                  <tr class="<?= $esEfectivo ? 'table-success' : '' ?>">
+                    <td><?= $mv['icon'] ?> <?= $mv['label'] ?>
+                      <?= $esEfectivo ? '<span class="badge bg-success ms-1">cajón físico</span>' : '<span class="badge bg-secondary ms-1">digital</span>' ?>
+                    </td>
+                    <td class="text-end text-success"><?= formatMoney($ingM) ?></td>
+                    <td class="text-end text-danger"><?= formatMoney($egrM) ?></td>
+                    <td class="text-end fw-semibold"><?= formatMoney($ingM - $egrM) ?></td>
+                  </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+            <div class="form-text small mt-1">
+              Solo el <strong>efectivo</strong> debe coincidir con el conteo físico. Los pagos digitales (Yape, Plin, tarjeta, transferencia) van a tu cuenta, no al cajón.
+            </div>
+          </div>
+
           <p class="text-muted small mb-3">
             <strong>Cuenta el efectivo físico</strong> que tienes en caja ahora mismo e ingresa la cantidad de cada billete y moneda:
           </p>
@@ -704,9 +784,9 @@ if ($cajaAbierta && $cajaAbierta['fecha'] !== $hoy): ?>
           <div class="row g-2 mt-4">
             <div class="col-md-4">
               <div class="p-3 rounded text-center" style="background:#f0fdf4;border:1px solid #86efac">
-                <div class="small text-muted fw-semibold">Saldo esperado en BD</div>
-                <div class="fw-bold fs-5 text-success"><?= formatMoney($saldoActual) ?></div>
-                <div class="small text-muted">S.inicial + ingresos - egresos</div>
+                <div class="small text-muted fw-semibold">Efectivo esperado en caja</div>
+                <div class="fw-bold fs-5 text-success"><?= formatMoney($esperadoEfectivo) ?></div>
+                <div class="small text-muted">S.inicial + ingresos efectivo - egresos efectivo</div>
               </div>
             </div>
             <div class="col-md-4">
@@ -770,7 +850,7 @@ if ($cajaAbierta && $cajaAbierta['fecha'] !== $hoy): ?>
 </div>
 <?php
 // JS correcto — sin heredoc, con PHP directo
-$esperado = isset($saldoActual) ? (float)$saldoActual : 0;
+$esperado = isset($esperadoEfectivo) ? (float)$esperadoEfectivo : (isset($saldoActual) ? (float)$saldoActual : 0);
 ?>
 <script>
 // Variables PHP → JS (forma correcta, sin heredoc)

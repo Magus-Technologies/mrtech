@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../config/app.php';
 requireLogin();
-requireRole([ROL_ADMIN, ROL_TECNICO]);
+requireRole([ROL_ADMIN, ROL_TECNICO, ROL_VENDEDOR]);
 $db   = getDB();
 $user = currentUser();
 
@@ -75,8 +75,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'registr
             $cajaId = $caja->fetchColumn();
             if ($cajaId) {
                 $concepto = "Compra $tipoDoc".($nroDoc?" #$nroDoc":"").($proveedor?" — $proveedor":"");
-                $db->prepare("INSERT INTO movimientos_caja (caja_id,tipo,concepto,monto,referencia,usuario_id) VALUES (?,?,?,?,?,?)")
-                   ->execute([$cajaId,'egreso',$concepto,$total,$nroDoc,$user['id']]);
+                insertMovimientoCaja($db, (int)$cajaId, 'egreso', $concepto,
+                                     (float)$total, $nroDoc, (int)$user['id'], $metPago);
             }
 
             $db->commit();

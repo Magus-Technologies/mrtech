@@ -201,8 +201,8 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='procesar_ve
                     }
                     if ($montoMov <= 0) continue;
                     $lbl = $metodosCfg[$pg['metodo']]['label'] ?? $pg['metodo'];
-                    $db->prepare("INSERT INTO movimientos_caja (caja_id,tipo,concepto,monto,referencia,usuario_id) VALUES (?,?,?,?,?,?)")
-                       ->execute([$cajaId, 'ingreso', 'Venta '.$codigo.' ('.$lbl.')', $montoMov, $codigo, $user['id']]);
+                    insertMovimientoCaja($db, (int)$cajaId, 'ingreso', 'Venta '.$codigo.' ('.$lbl.')',
+                                         (float)$montoMov, $codigo, (int)$user['id'], $pg['metodo']);
                 }
             }
 

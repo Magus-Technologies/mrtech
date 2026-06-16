@@ -53,15 +53,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         redirect(BASE_URL . 'modules/ot/ver.php?id=' . $id);
     }
     if ($_POST['action'] === 'registrar_pago') {
+        $metodoPago = $_POST['metodo_pago'] ?? 'efectivo';
         $db->prepare("UPDATE ordenes_trabajo SET pagado=1, metodo_pago=?, fecha_pago=NOW() WHERE id=?")
-           ->execute([$_POST['metodo_pago'], $id]);
+           ->execute([$metodoPago, $id]);
         // Movimiento de caja — en la caja abierta del usuario logueado (caja por usuario)
         $cajaAbierta = $db->prepare("SELECT id FROM cajas WHERE estado='abierta' AND usuario_id=? ORDER BY fecha DESC, id DESC LIMIT 1");
         $cajaAbierta->execute([$user['id']]);
         $caja = $cajaAbierta->fetchColumn();
         if ($caja) {
-            $db->prepare("INSERT INTO movimientos_caja (caja_id,tipo,concepto,monto,referencia,usuario_id) VALUES (?,?,?,?,?,?)")
-               ->execute([$caja,'ingreso','Pago reparación ' . $ot['codigo_ot'], $ot['precio_final'], $ot['codigo_ot'], $user['id']]);
+            insertMovimientoCaja($db, (int)$caja, 'ingreso', 'Pago reparación ' . $ot['codigo_ot'],
+                                 (float)$ot['precio_final'], $ot['codigo_ot'], (int)$user['id'], $metodoPago);
         }
         setFlash('success','Pago registrado correctamente.');
         redirect(BASE_URL . 'modules/ot/ver.php?id=' . $id);

@@ -27,6 +27,37 @@ function getMetodosPago(): array {
     ];
 }
 
+// ── Caja: ¿la tabla movimientos_caja ya tiene la columna metodo_pago? ──
+// Permite desplegar el código antes/después de correr la migración 004 sin romper.
+function cajaTieneMetodoPago(): bool {
+    static $has = null;
+    if ($has !== null) return $has;
+    try {
+        $col = getDB()->query("SHOW COLUMNS FROM movimientos_caja LIKE 'metodo_pago'")->fetch();
+        $has = (bool)$col;
+    } catch (\Throwable $e) {
+        $has = false;
+    }
+    return $has;
+}
+
+// Inserta un movimiento de caja propagando el método de pago si la columna existe.
+// Centraliza los 4 puntos del sistema que registran movimientos (OT, ventas, compras, manual).
+function insertMovimientoCaja(PDO $db, int $cajaId, string $tipo, string $concepto,
+                              float $monto, ?string $referencia, int $usuarioId,
+                              string $metodoPago = 'efectivo'): void {
+    if (!array_key_exists($metodoPago, getMetodosPago())) {
+        $metodoPago = 'efectivo';
+    }
+    if (cajaTieneMetodoPago()) {
+        $db->prepare("INSERT INTO movimientos_caja (caja_id,tipo,concepto,monto,referencia,usuario_id,metodo_pago) VALUES (?,?,?,?,?,?,?)")
+           ->execute([$cajaId, $tipo, $concepto, $monto, $referencia, $usuarioId, $metodoPago]);
+    } else {
+        $db->prepare("INSERT INTO movimientos_caja (caja_id,tipo,concepto,monto,referencia,usuario_id) VALUES (?,?,?,?,?,?)")
+           ->execute([$cajaId, $tipo, $concepto, $monto, $referencia, $usuarioId]);
+    }
+}
+
 // Estados de OT
 // Estados OT — cargados dinámicamente desde BD si existe la tabla, sino fallback estático
 function getEstadosOT(): array {

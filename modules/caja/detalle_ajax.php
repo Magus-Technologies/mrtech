@@ -89,6 +89,18 @@ $egr    = array_sum(array_map(fn($m) => $m['tipo']==='egreso'  ? (float)$m['mont
 $sfCalc = round((float)$caja['saldo_inicial'] + $ing - $egr, 2);
 $dif    = (float)($caja['diferencia_cierre'] ?? 0);
 
+// Desglose por método de pago
+$metodosCfgDet = getMetodosPago();
+$hasMetodoDet  = cajaTieneMetodoPago();
+$ingMetDet = array_fill_keys(array_keys($metodosCfgDet), 0.0);
+$egrMetDet = array_fill_keys(array_keys($metodosCfgDet), 0.0);
+foreach ($movs as $m) {
+    $met = $hasMetodoDet ? ($m['metodo_pago'] ?? 'efectivo') : 'efectivo';
+    if (!isset($ingMetDet[$met])) { $ingMetDet[$met] = 0.0; $egrMetDet[$met] = 0.0; }
+    if ($m['tipo']==='ingreso') $ingMetDet[$met] += (float)$m['monto'];
+    else                        $egrMetDet[$met] += (float)$m['monto'];
+}
+
 $billetes = [200, 100, 50, 20, 10];
 $monedas  = [5.00, 2.00, 1.00, 0.50, 0.20, 0.10];
 function dkAjax($tipo, $v) { return $tipo==='bil' ? 'bil_'.(int)$v : 'mon_'.str_replace('.','_',number_format((float)$v,2,'_','')); }
@@ -147,6 +159,33 @@ $ESTADOS_OT = [
         <div class="small <?= $dif>0?'text-warning':'text-danger' ?> fw-semibold"><?= $dif>0?'⚠️ Sobrante':'❌ Faltante' ?>: <?= formatMoney(abs($dif)) ?></div>
         <?php elseif($caja['estado']==='cerrada'): ?><div class="small text-success">✅ Cuadra</div><?php endif; ?>
       </div>
+    </div>
+  </div>
+
+  <!-- Desglose por método de pago -->
+  <div class="mb-3">
+    <div class="small fw-semibold text-muted mb-2">📊 INGRESOS / EGRESOS POR MÉTODO</div>
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered mb-0 small">
+        <thead class="table-light">
+          <tr><th>Método</th><th class="text-end">Ingresos</th><th class="text-end">Egresos</th><th class="text-end">Neto</th></tr>
+        </thead>
+        <tbody>
+          <?php foreach($metodosCfgDet as $mk => $mv):
+            $iM = $ingMetDet[$mk] ?? 0; $eM = $egrMetDet[$mk] ?? 0;
+            if ($iM == 0 && $eM == 0) continue;
+          ?>
+          <tr class="<?= $mk==='efectivo'?'table-success':'' ?>">
+            <td><?= $mv['icon'] ?> <?= $mv['label'] ?>
+              <?= $mk==='efectivo' ? '<span class="badge bg-success ms-1">cajón</span>' : '<span class="badge bg-secondary ms-1">digital</span>' ?>
+            </td>
+            <td class="text-end text-success"><?= formatMoney($iM) ?></td>
+            <td class="text-end text-danger"><?= formatMoney($eM) ?></td>
+            <td class="text-end fw-semibold"><?= formatMoney($iM - $eM) ?></td>
+          </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
     </div>
   </div>
 

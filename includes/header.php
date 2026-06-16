@@ -79,6 +79,10 @@
        class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'/caja/')!==false?'active':'' ?>">
       <i data-feather="dollar-sign"></i><span>Mi caja</span>
     </a>
+    <a href="<?= BASE_URL ?>modules/compras/index.php"
+       class="tr-nav-item <?= strpos($_SERVER['REQUEST_URI'],'compras')!==false?'active':'' ?>">
+      <i data-feather="truck"></i><span>Compras</span>
+    </a>
     <?php endif; ?>
     <?php endif; ?>
 
