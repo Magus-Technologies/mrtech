@@ -101,7 +101,7 @@ if (in_array($accion, ['xml', 'cdr'], true) && $id) {
         if (empty($nota['sunat_xml'])) { http_response_code(404); echo 'Sin XML.'; exit; }
         header('Content-Type: application/xml; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $base . '.xml"');
-        echo base64_decode($nota['sunat_xml']); exit;
+        echo $nota['sunat_xml']; exit;
     }
     if (empty($nota['sunat_cdr'])) { http_response_code(404); echo 'Sin CDR.'; exit; }
     header('Content-Type: application/zip');

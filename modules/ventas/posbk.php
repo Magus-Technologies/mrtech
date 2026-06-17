@@ -16,17 +16,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $descGlobal= (float)($_POST['descuento_global'] ?? 0);
 
     if (!empty($items)) {
-        $subtotal = 0;
+        $subtotalBruto = 0;
         foreach ($items as $item) {
-            $subtotal += (float)$item['precio'] * (float)$item['cantidad'];
+            $subtotalBruto += (float)$item['precio'] * (float)$item['cantidad'];
         }
-        $subtotal -= $descGlobal;
-        $igv   = round($subtotal * 0.18, 2);
-        $total = round($subtotal + $igv, 2);
+        $subtotalBruto = max(0, round($subtotalBruto - $descGlobal, 2));
+        $aplicaIgv     = ($_POST['aplica_igv'] ?? '1') === '1';
+        if ($aplicaIgv) {
+            $subtotalBase = round($subtotalBruto / 1.18, 2);
+            $igv          = round($subtotalBruto - $subtotalBase, 2);
+        } else {
+            $subtotalBase = $subtotalBruto;
+            $igv          = 0;
+        }
+        $total    = $subtotalBruto;
 
         $codigo = generarCodigoVenta($db);
         $db->prepare("INSERT INTO ventas (codigo,cliente_id,usuario_id,tipo_doc,subtotal,igv,descuento,total,metodo_pago,monto_pagado) VALUES (?,?,?,?,?,?,?,?,?,?)")
-           ->execute([$codigo,$clienteId,$user['id'],$tipoDoc,$subtotal,$igv,$descGlobal,$total,$metPago,$_POST['monto_pagado']??$total]);
+           ->execute([$codigo,$clienteId,$user['id'],$tipoDoc,$subtotalBase,$igv,$descGlobal,$total,$metPago,$_POST['monto_pagado']??$total]);
         $ventaId = $db->lastInsertId();
 
         foreach ($items as $item) {

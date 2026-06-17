@@ -52,6 +52,11 @@ $tipoDocLabel = [
 ];
 $docLabel = $tipoDocLabel[$venta['tipo_doc']] ?? 'COMPROBANTE';
 
+// Código formateado: serie-num para SUNAT, codigo interno para otros
+$codigoDisplay = (in_array($venta['tipo_doc'],['factura','boleta']) && $venta['serie_doc'])
+    ? $venta['serie_doc'] . '-' . str_pad((int)$venta['num_doc'], 8, '0', STR_PAD_LEFT)
+    : $codigoDisplay;
+
 // ── Formato de impresión ────────────────────────────
 $formato = $_GET['formato'] ?? $cfg['print_formato'] ?? 'a4';
 $esThermal = in_array($formato, ['ticket58','ticket80']);
@@ -59,11 +64,11 @@ $esPdf    = isset($_GET['pdf']);
 
 // ── PDF con Dompdf ──────────────────────────────────
 if ($esPdf):
-$html     = renderTicketHtml($venta, $detalle, $cfg, $docLabel, $moneda, $igvPct, $formato);
+$html     = renderTicketHtml($venta, $detalle, $cfg, $docLabel, $moneda, $igvPct, $formato, $codigoDisplay);
 try {
     $pageSize = $esThermal ? ($formato === 'ticket58' ? [0,0,58*2.8346,297*2.8346] : [0,0,80*2.8346,297*2.8346]) : 'A4';
     $pdf = generarPdf($html, $pageSize, 'portrait');
-    $pdf->stream(($venta['codigo']??'comprobante').'.pdf', ['Attachment' => false]);
+    $pdf->stream(($codigoDisplay??'comprobante').'.pdf', ['Attachment' => false]);
 } catch (\Throwable $e) {
     die('Error al generar PDF: ' . $e->getMessage());
 }
@@ -71,7 +76,7 @@ exit;
 endif;
 
 // Helper: renderiza el HTML del ticket sin envoltura HTML
-function renderTicketHtml(array $venta, array $detalle, array $cfg, string $docLabel, string $moneda, float $igvPct, string $formato): string {
+function renderTicketHtml(array $venta, array $detalle, array $cfg, string $docLabel, string $moneda, float $igvPct, string $formato, string $codigoDisplay): string {
     $empresa    = $cfg['empresa_nombre']    ?? APP_NAME;
     $empresaRuc = $cfg['empresa_ruc']       ?? '';
     $empresaTel = $cfg['empresa_telefono']  ?? '';
@@ -83,7 +88,7 @@ function renderTicketHtml(array $venta, array $detalle, array $cfg, string $docL
     <div style="font-family:Courier,monospace;font-size:<?= $is58?'8px':'10px' ?>;padding:<?= $is58?'2mm 3mm':'3mm 5mm' ?>">
       <div style="text-align:center;padding:0 0 3px"><b style="font-size:<?= $is58?'10px':'12px' ?>"><?= htmlspecialchars($empresa) ?></b><br/><?= htmlspecialchars($empresaRuc) ?><?php if($empresaDir): ?><br/><?= htmlspecialchars($empresaDir) ?><?php endif; ?></div>
       <div style="border-top:1px solid #000;height:0;margin:2px 0"></div>
-      <div style="text-align:center;padding:2px 0;font-weight:bold"><?= $docLabel ?><br/><?= htmlspecialchars($venta['codigo']) ?><br/><?= date('d/m/Y H:i', strtotime($venta['created_at'])) ?></div>
+      <div style="text-align:center;padding:2px 0;font-weight:bold"><?= $docLabel ?><br/><?= htmlspecialchars($codigoDisplay) ?><br/><?= date('d/m/Y H:i', strtotime($venta['created_at'])) ?></div>
       <div style="border-top:1px solid #000;height:0;margin:2px 0"></div>
       <div style="padding:2px 0"><?php if($venta['ruc_dni']): ?>CLIENTE: <?= htmlspecialchars($venta['ruc_dni']) ?><br/><?php endif; ?><?= htmlspecialchars($venta['cliente_nombre'] ?: 'Consumidor final') ?><br/>CAJERO: <?= htmlspecialchars(trim($venta['vendedora_nombre']) ?: $venta['cajero_nombre']) ?></div>
       <div style="border-top:1px solid #000;height:0;margin:2px 0"></div>
@@ -97,7 +102,7 @@ function renderTicketHtml(array $venta, array $detalle, array $cfg, string $docL
     <div style="font-family:Helvetica,Arial,sans-serif;padding:4mm 5mm">
       <table style="width:100%;border-collapse:collapse"><tr>
         <td style="width:50%;vertical-align:top"><b style="font-size:18px"><?= htmlspecialchars($empresa) ?></b><br/><span style="font-size:9px;color:#555"><?php if($empresaRuc): ?>RUC: <?= htmlspecialchars($empresaRuc) ?><br/><?php endif; ?><?php if($empresaDir): ?><?= htmlspecialchars($empresaDir) ?><br/><?php endif; ?><?php if($empresaTel): ?>T: <?= htmlspecialchars($empresaTel) ?><?php endif; ?></span></td>
-        <td style="width:50%;vertical-align:top;text-align:right"><b style="font-size:14px"><?= $docLabel ?></b><br/><span style="font-size:10px"><?= htmlspecialchars($venta['codigo']) ?><br/><?= date('d/m/Y H:i', strtotime($venta['created_at'])) ?></span></td>
+        <td style="width:50%;vertical-align:top;text-align:right"><b style="font-size:14px"><?= $docLabel ?></b><br/><span style="font-size:10px"><?= htmlspecialchars($codigoDisplay) ?><br/><?= date('d/m/Y H:i', strtotime($venta['created_at'])) ?></span></td>
       </tr></table>
       <div style="border-bottom:2px solid #1a1a2e;margin:4px 0 6px"></div>
       <table style="width:100%;border-collapse:collapse;font-size:9px">
@@ -123,7 +128,7 @@ function renderTicketHtml(array $venta, array $detalle, array $cfg, string $docL
 <html lang="es">
 <head>
 <meta charset="UTF-8"/>
-<title><?= $docLabel ?> <?= htmlspecialchars($venta['codigo']) ?></title>
+<title><?= $docLabel ?> <?= htmlspecialchars($codigoDisplay) ?></title>
 <?php if ($esThermal): ?>
 <?php
 $is58 = $formato === 'ticket58';
@@ -185,7 +190,7 @@ $mono  = "'Courier New',Courier,monospace";
   <hr/>
   <div class="c b">
     <?= $docLabel ?><br/>
-    <?= htmlspecialchars($venta['codigo']) ?><br/>
+    <?= htmlspecialchars($codigoDisplay) ?><br/>
     <?= date('d/m/Y H:i', strtotime($venta['created_at'])) ?>
   </div>
   <hr/>
@@ -332,7 +337,7 @@ if (new URLSearchParams(window.location.search).get('print') === '1') {
     </div>
     <div class="doc-title-right">
       <div class="doc-tipo"><?= $docLabel ?></div>
-      <div class="doc-num"><?= htmlspecialchars($venta['codigo']) ?></div>
+      <div class="doc-num"><?= htmlspecialchars($codigoDisplay) ?></div>
       <div class="doc-fecha"><?= date('d/m/Y H:i', strtotime($venta['created_at'])) ?></div>
       <div style="margin-top:6px">
         <span class="badge <?= $venta['estado']==='completada'?'badge-ok':'badge-danger' ?>">
@@ -455,7 +460,7 @@ if (new URLSearchParams(window.location.search).get('print') === '1') {
     <p>¡Gracias por su compra! Si tiene alguna consulta comuníquese con nosotros.</p>
     <?php if($empresaTel): ?><p>📞 <?= htmlspecialchars($empresaTel) ?></p><?php endif; ?>
     <p style="margin-top:6px;font-size:10px;color:#9ca3af">
-      <?= $docLabel ?> N° <?= htmlspecialchars($venta['codigo']) ?> — <?= date('d/m/Y H:i', strtotime($venta['created_at'])) ?>
+      <?= $docLabel ?> N° <?= htmlspecialchars($codigoDisplay) ?> — <?= date('d/m/Y H:i', strtotime($venta['created_at'])) ?>
     </p>
   </div>
 

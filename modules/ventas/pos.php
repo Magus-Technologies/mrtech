@@ -83,9 +83,15 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='procesar_ve
             $subtotalBruto += (float)$item['precio'] * (float)$item['cantidad'];
         }
         $subtotalBruto = max(0, round($subtotalBruto - $descGlobal, 2));
-        $subtotalBase  = round($subtotalBruto / 1.18, 2);
-        $igv           = round($subtotalBruto - $subtotalBase, 2);
-        $total         = $subtotalBruto;
+        $aplicaIgv     = ($_POST['aplica_igv'] ?? '1') === '1';
+        if ($aplicaIgv) {
+            $subtotalBase = round($subtotalBruto / 1.18, 2);
+            $igv          = round($subtotalBruto - $subtotalBase, 2);
+        } else {
+            $subtotalBase = $subtotalBruto;
+            $igv          = 0;
+        }
+        $total    = $subtotalBruto;
         $montoPag = (float)($_POST['monto_pagado'] ?? $total);
         $vuelto   = max(0, round($montoPag - $total, 2));
 
@@ -341,12 +347,26 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="mb-3">
           <label class="tr-form-label">Comprobante</label>
           <select id="tipo-doc" class="form-select form-select-sm">
-            <option value="ticket">Ticket</option>
-            <option value="boleta">Boleta</option>
+            <option value="boleta" selected>Boleta</option>
             <option value="factura">Factura</option>
+            <option value="ticket">Ticket</option>
             <option value="sin_comprobante">Sin comprobante</option>
           </select>
           <div id="txt-correlativo" class="mt-1 small fw-bold" style="display:none"></div>
+        </div>
+
+        <!-- IGV toggle -->
+        <div class="mb-3">
+          <label class="tr-form-label">¿Aplica IGV?</label>
+          <div class="btn-group w-100" role="group">
+            <input type="radio" class="btn-check" name="aplica_igv" id="igvSi" value="1" checked onchange="toggleIgv()">
+            <label class="btn btn-outline-primary btn-sm" for="igvSi">Sí (gravado)</label>
+            <input type="radio" class="btn-check" name="aplica_igv" id="igvNo" value="0" onchange="toggleIgv()">
+            <label class="btn btn-outline-primary btn-sm" for="igvNo">No (exonerado)</label>
+          </div>
+          <div id="igv-info" class="mt-1 small text-muted" style="font-size:11px">
+            <i data-feather="info" style="width:11px;height:11px"></i> Los precios <strong>incluyen IGV (18%)</strong>. Se desglosa automáticamente en el comprobante.
+          </div>
         </div>
 
         <!-- Descuento manual -->
@@ -361,7 +381,7 @@ require_once __DIR__ . '/../../includes/header.php';
           <div class="d-flex justify-content-between small mb-1">
             <span>Base imponible:</span><span id="txt-subtotal">S/ 0.00</span>
           </div>
-          <div class="d-flex justify-content-between small mb-1">
+          <div class="d-flex justify-content-between small mb-1" id="igv-breakdown">
             <span>IGV (18%):</span><span id="txt-igv">S/ 0.00</span>
           </div>
           <div class="d-flex justify-content-between small mb-1 text-danger">
@@ -413,10 +433,14 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="fs-1">🎉</div>
         <div id="ticket-codigo" class="fw-bold fs-5 mt-2"></div>
         <div id="ticket-total" class="text-muted"></div>
-        <div class="d-flex gap-2 justify-content-center mt-3">
+        <div class="d-flex gap-2 justify-content-center mt-3 flex-wrap">
           <button class="btn btn-primary btn-sm" onclick="nuevaVenta()">Nueva venta</button>
-          <a id="btn-imprimir-ticket" href="#" target="_blank"
-             class="btn btn-outline-secondary btn-sm">Imprimir</a>
+          <div class="btn-group btn-group-sm">
+            <a id="btn-preview-ticket" href="#" target="_blank" class="btn btn-outline-secondary" title="Vista previa">👁</a>
+            <a id="btn-pdf-a4" href="#" target="_blank" class="btn btn-outline-secondary" title="PDF A4">📄</a>
+            <a id="btn-pdf-80" href="#" target="_blank" class="btn btn-outline-secondary" title="PDF 80mm">🧾80</a>
+            <a id="btn-pdf-58" href="#" target="_blank" class="btn btn-outline-secondary" title="PDF 58mm">🧾58</a>
+          </div>
         </div>
       </div>
     </div>
@@ -495,18 +519,33 @@ function renderCarrito() {
   calcularTotales();
 }
 
+// ── IGV TOGGLE ────────────────────────────────────────────
+window.toggleIgv = function() {
+  const si = document.getElementById('igvSi').checked;
+  const info = document.getElementById('igv-info');
+  if (info) {
+    info.innerHTML = si
+      ? '<i data-feather="info" style="width:11px;height:11px"></i> Los precios <strong>incluyen IGV (18%)</strong>. Se desglosa automáticamente en el comprobante.'
+      : '<i data-feather="receipt" style="width:11px;height:11px"></i> Los precios <strong>NO incluyen IGV</strong>. Comprobante exonerado o inafecto.';
+    feather.replace();
+  }
+  calcularTotales();
+};
+
 // ── TOTALES ───────────────────────────────────────────────
 function calcularTotales() {
   const descManual = parseFloat(document.getElementById('descuento-global').value) || 0;
   const descTotal  = descManual + descuentoCodigo;
   let subBruto = Math.max(0, carrito.reduce((s,i) => s + i.precio*i.cantidad, 0) - descTotal);
-  const base   = subBruto / 1.18;
+  const aplica = document.getElementById('igvSi').checked;
+  const base   = aplica ? subBruto / 1.18 : subBruto;
   const igv    = subBruto - base;
   const total  = subBruto;
   document.getElementById('txt-subtotal').textContent = 'S/ ' + base.toFixed(2);
   document.getElementById('txt-igv').textContent      = 'S/ ' + igv.toFixed(2);
   document.getElementById('txt-desc').textContent     = 'S/ ' + descTotal.toFixed(2);
   document.getElementById('txt-total').textContent    = 'S/ ' + total.toFixed(2);
+  document.getElementById('igv-breakdown').style.display = aplica ? '' : 'none';
   actualizarPagos();
 }
 
@@ -680,6 +719,7 @@ function procesarVenta() {
   const descTotal= descMan + descuentoCodigo;
   const payload  = new FormData();
   payload.append('action',              'procesar_venta');
+  payload.append('aplica_igv',          document.getElementById('igvSi').checked ? '1' : '0');
   payload.append('items',               JSON.stringify(carrito));
   payload.append('cliente_id',          document.getElementById('sel-cliente-venta').value);
   payload.append('vendedor_id',         document.getElementById('sel-vendedora').value || '');
@@ -696,7 +736,11 @@ function procesarVenta() {
       if (data.success) {
         document.getElementById('ticket-codigo').textContent = data.codigo;
         document.getElementById('ticket-total').textContent  = 'Total: S/ ' + parseFloat(data.total).toFixed(2);
-        document.getElementById('btn-imprimir-ticket').href  = BASE_URL_JS + 'modules/ventas/ticket.php?id=' + data.venta_id + '&print=1&formato=' + PRINT_FORMATO;
+        var base = BASE_URL_JS + 'modules/ventas/ticket.php?id=' + data.venta_id;
+        document.getElementById('btn-preview-ticket').href = base;
+        document.getElementById('btn-pdf-a4').href          = base + '&pdf=1';
+        document.getElementById('btn-pdf-80').href          = base + '&pdf=1&formato=ticket80';
+        document.getElementById('btn-pdf-58').href          = base + '&pdf=1&formato=ticket58';
         new bootstrap.Modal(document.getElementById('modal-ticket')).show();
         limpiarCarrito();
       } else {

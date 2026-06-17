@@ -159,7 +159,7 @@ require_once __DIR__ . '/../../includes/header.php';
           };
         ?>
         <tr>
-          <td><span class="fw-semibold small text-primary"><?= sanitize($v['codigo']) ?></span></td>
+          <td><span class="fw-semibold small text-primary"><?php if (in_array($v['tipo_doc'],['factura','boleta']) && $v['serie_doc']): ?><?= sanitize($v['serie_doc']) ?>-<?= str_pad((int)$v['num_doc'],8,'0',STR_PAD_LEFT) ?><?php else: ?><?= sanitize($v['codigo']) ?><?php endif; ?></span></td>
           <td class="small"><?= sanitize($v['cliente_nombre'] ?? '— Consumidor final —') ?></td>
           <td><span class="badge bg-secondary"><?= ucfirst($v['tipo_doc']) ?></span></td>
           <td class="small"><?= formatMoney($v['subtotal']) ?></td>

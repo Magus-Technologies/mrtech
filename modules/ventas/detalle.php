@@ -73,9 +73,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $sunatEnabled) {
         $row = $row->fetch();
         if ($row && !empty($row['sunat_xml'])) {
             $filename = SunatService::nombreArchivo($row) . '.xml';
-            header('Content-Type: application/xml');
+            header('Content-Type: application/xml; charset=utf-8');
             header('Content-Disposition: attachment; filename="' . $filename . '"');
-            echo base64_decode($row['sunat_xml']);
+            // XML se guarda crudo (no base64)
+            echo $row['sunat_xml'];
             exit;
         }
         setFlash('warning', 'No hay XML disponible para descargar.');
