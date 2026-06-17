@@ -43,6 +43,33 @@ function cajaTieneMetodoPago(): bool {
 
 // Inserta un movimiento de caja propagando el método de pago si la columna existe.
 // Centraliza los 4 puntos del sistema que registran movimientos (OT, ventas, compras, manual).
+// ── Dompdf: genera PDF a partir de HTML ───────────────────
+function generarPdf(string $html, string|array $pageSize = 'A4', string $orientation = 'portrait'): \Dompdf\Dompdf {
+    if (!class_exists('\Dompdf\Dompdf')) {
+        $p = realpath(__DIR__ . '/../vendor/autoload.php') ?: realpath(__DIR__ . '/../../vendor/autoload.php');
+        if ($p) require_once $p;
+    }
+    $options = new \Dompdf\Options();
+    $options->set('defaultFont', 'Helvetica');
+    $options->set('isRemoteEnabled', true);
+    $options->set('isHtml5ParserEnabled', true);
+    $dompdf = new \Dompdf\Dompdf($options);
+
+    // Si el HTML no es un documento completo, lo envolvemos para controlar márgenes
+    if (!str_contains($html, '<!DOCTYPE')) {
+        $html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+              . '<style>@page { margin: 0; }'
+
+              . 'body { margin:0; padding:0; }</style>'
+              . '</head><body>'.$html.'</body></html>';
+    }
+
+    $dompdf->loadHtml($html, 'UTF-8');
+    $dompdf->setPaper($pageSize, $orientation);
+    $dompdf->render();
+    return $dompdf;
+}
+
 function insertMovimientoCaja(PDO $db, int $cajaId, string $tipo, string $concepto,
                               float $monto, ?string $referencia, int $usuarioId,
                               string $metodoPago = 'efectivo'): void {

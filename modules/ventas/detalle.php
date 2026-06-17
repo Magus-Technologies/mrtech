@@ -160,8 +160,11 @@ require_once __DIR__ . '/../../includes/header.php';
               data-confirm="¿Anular esta venta? Se restaurará el stock.">Anular venta</button>
     </form>
     <?php endif; ?>
-    <a href="<?= BASE_URL ?>modules/ventas/ticket.php?id=<?= $id ?>" target="_blank" class="btn btn-primary btn-sm">
-      <i data-feather="printer" style="width:14px;height:14px"></i> Imprimir comprobante
+    <a href="<?= BASE_URL ?>modules/ventas/ticket.php?id=<?= $id ?>" target="_blank" class="btn btn-outline-secondary btn-sm">
+      <i data-feather="printer" style="width:14px;height:14px"></i> Imprimir
+    </a>
+    <a href="<?= BASE_URL ?>modules/ventas/ticket.php?id=<?= $id ?>&pdf=1" target="_blank" class="btn btn-primary btn-sm">
+      <i data-feather="file-text" style="width:14px;height:14px"></i> PDF
     </a>
     <a href="<?= BASE_URL ?>modules/ventas/index.php" class="btn btn-outline-secondary btn-sm">← Volver</a>
   </div>

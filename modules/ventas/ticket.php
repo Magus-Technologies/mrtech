@@ -5,6 +5,8 @@
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../config/app.php';
+$autoloadPath = realpath(__DIR__ . '/../../vendor/autoload.php');
+if ($autoloadPath) require_once $autoloadPath;
 requireLogin();
 
 $db = getDB();
@@ -53,6 +55,69 @@ $docLabel = $tipoDocLabel[$venta['tipo_doc']] ?? 'COMPROBANTE';
 // ── Formato de impresión ────────────────────────────
 $formato = $_GET['formato'] ?? $cfg['print_formato'] ?? 'a4';
 $esThermal = in_array($formato, ['ticket58','ticket80']);
+$esPdf    = isset($_GET['pdf']);
+
+// ── PDF con Dompdf ──────────────────────────────────
+if ($esPdf):
+$html     = renderTicketHtml($venta, $detalle, $cfg, $docLabel, $moneda, $igvPct, $formato);
+try {
+    $pageSize = $esThermal ? ($formato === 'ticket58' ? [0,0,58*2.8346,297*2.8346] : [0,0,80*2.8346,297*2.8346]) : 'A4';
+    $pdf = generarPdf($html, $pageSize, 'portrait');
+    $pdf->stream(($venta['codigo']??'comprobante').'.pdf', ['Attachment' => false]);
+} catch (\Throwable $e) {
+    die('Error al generar PDF: ' . $e->getMessage());
+}
+exit;
+endif;
+
+// Helper: renderiza el HTML del ticket sin envoltura HTML
+function renderTicketHtml(array $venta, array $detalle, array $cfg, string $docLabel, string $moneda, float $igvPct, string $formato): string {
+    $empresa    = $cfg['empresa_nombre']    ?? APP_NAME;
+    $empresaRuc = $cfg['empresa_ruc']       ?? '';
+    $empresaTel = $cfg['empresa_telefono']  ?? '';
+    $empresaDir = $cfg['empresa_direccion'] ?? '';
+    $esThermal  = in_array($formato, ['ticket58','ticket80']);
+    $is58       = $formato === 'ticket58';
+    ob_start();
+    if ($esThermal): ?>
+    <div style="font-family:Courier,monospace;font-size:<?= $is58?'8px':'10px' ?>;padding:<?= $is58?'2mm 3mm':'3mm 5mm' ?>">
+      <div style="text-align:center;padding:0 0 3px"><b style="font-size:<?= $is58?'10px':'12px' ?>"><?= htmlspecialchars($empresa) ?></b><br/><?= htmlspecialchars($empresaRuc) ?><?php if($empresaDir): ?><br/><?= htmlspecialchars($empresaDir) ?><?php endif; ?></div>
+      <div style="border-top:1px solid #000;height:0;margin:2px 0"></div>
+      <div style="text-align:center;padding:2px 0;font-weight:bold"><?= $docLabel ?><br/><?= htmlspecialchars($venta['codigo']) ?><br/><?= date('d/m/Y H:i', strtotime($venta['created_at'])) ?></div>
+      <div style="border-top:1px solid #000;height:0;margin:2px 0"></div>
+      <div style="padding:2px 0"><?php if($venta['ruc_dni']): ?>CLIENTE: <?= htmlspecialchars($venta['ruc_dni']) ?><br/><?php endif; ?><?= htmlspecialchars($venta['cliente_nombre'] ?: 'Consumidor final') ?><br/>CAJERO: <?= htmlspecialchars(trim($venta['vendedora_nombre']) ?: $venta['cajero_nombre']) ?></div>
+      <div style="border-top:1px solid #000;height:0;margin:2px 0"></div>
+      <table style="width:100%;border-collapse:collapse"><?php foreach($detalle as $d): ?><tr><td style="padding:1px 0;white-space:nowrap;overflow:hidden"><?= htmlspecialchars($d['prod_nombre']) ?></td><td style="text-align:right;padding:1px 0 1px 4px;white-space:nowrap"><?= number_format($d['cantidad'],0) ?></td><td style="text-align:right;padding:1px 0 1px 4px;white-space:nowrap"><?= number_format($d['subtotal'],2) ?></td></tr><?php endforeach; ?></table>
+      <div style="border-top:1px solid #000;height:0;margin:2px 0"></div>
+      <div style="text-align:right;padding:2px 0">BASE: <?= $moneda ?> <?= number_format($venta['subtotal'],2) ?><br/>IGV <?= number_format($igvPct,0) ?>%: <?= $moneda ?> <?= number_format($venta['igv'],2) ?><br/><?php if($venta['descuento'] > 0): ?>DESC: -<?= $moneda ?> <?= number_format($venta['descuento'],2) ?><br/><?php endif; ?><b>TOTAL: <?= $moneda ?> <?= number_format($venta['total'],2) ?></b></div>
+      <div style="border-top:1px solid #000;height:0;margin:2px 0"></div>
+      <div style="text-align:center;padding:3px 0;font-size:<?= $is58?'7px':'9px' ?>"><?= htmlspecialchars($empresa) ?><br/>¡Gracias por su compra!<?php if($empresaTel): ?><br/>T: <?= htmlspecialchars($empresaTel) ?><?php endif; ?></div>
+    </div>
+    <?php else: ?>
+    <div style="font-family:Helvetica,Arial,sans-serif;padding:4mm 5mm">
+      <table style="width:100%;border-collapse:collapse"><tr>
+        <td style="width:50%;vertical-align:top"><b style="font-size:18px"><?= htmlspecialchars($empresa) ?></b><br/><span style="font-size:9px;color:#555"><?php if($empresaRuc): ?>RUC: <?= htmlspecialchars($empresaRuc) ?><br/><?php endif; ?><?php if($empresaDir): ?><?= htmlspecialchars($empresaDir) ?><br/><?php endif; ?><?php if($empresaTel): ?>T: <?= htmlspecialchars($empresaTel) ?><?php endif; ?></span></td>
+        <td style="width:50%;vertical-align:top;text-align:right"><b style="font-size:14px"><?= $docLabel ?></b><br/><span style="font-size:10px"><?= htmlspecialchars($venta['codigo']) ?><br/><?= date('d/m/Y H:i', strtotime($venta['created_at'])) ?></span></td>
+      </tr></table>
+      <div style="border-bottom:2px solid #1a1a2e;margin:4px 0 6px"></div>
+      <table style="width:100%;border-collapse:collapse;font-size:9px">
+        <tr><td style="background:#1a1a2e;color:#fff;padding:4px 6px;font-weight:bold" colspan="4">DATOS DEL CLIENTE</td></tr>
+        <tr><td style="border:1px solid #ccc;padding:3px 5px;width:15%"><b>DNI/RUC</b></td><td style="border:1px solid #ccc;padding:3px 5px;width:35%"><?= htmlspecialchars($venta['ruc_dni'] ?: '—') ?></td><td style="border:1px solid #ccc;padding:3px 5px;width:15%"><b>CLIENTE</b></td><td style="border:1px solid #ccc;padding:3px 5px;width:35%"><?= htmlspecialchars($venta['cliente_nombre'] ?: 'Consumidor final') ?></td></tr>
+        <tr><td style="border:1px solid #ccc;padding:3px 5px"><b>TELÉFONO</b></td><td style="border:1px solid #ccc;padding:3px 5px"><?= htmlspecialchars($venta['telefono'] ?: '—') ?></td><td style="border:1px solid #ccc;padding:3px 5px"><b>VENDEDOR</b></td><td style="border:1px solid #ccc;padding:3px 5px"><?= htmlspecialchars(trim($venta['vendedora_nombre']) ?: $venta['cajero_nombre']) ?></td></tr>
+      </table>
+      <table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:9px">
+        <tr><td style="background:#1a1a2e;color:#fff;padding:4px 6px;font-weight:bold" colspan="5">DETALLE DE PRODUCTOS / SERVICIOS</td></tr>
+        <tr><th style="border:1px solid #ccc;padding:4px 5px;text-align:center;width:20px">#</th><th style="border:1px solid #ccc;padding:4px 5px;text-align:left">PRODUCTO / SERVICIO</th><th style="border:1px solid #ccc;padding:4px 5px;text-align:center;width:50px">CANT.</th><th style="border:1px solid #ccc;padding:4px 5px;text-align:right;width:70px">P. UNIT.</th><th style="border:1px solid #ccc;padding:4px 5px;text-align:right;width:70px">SUBTOTAL</th></tr>
+        <?php foreach($detalle as $i=>$d): ?><tr><td style="border:1px solid #ccc;padding:3px 5px;text-align:center"><?= $i+1 ?></td><td style="border:1px solid #ccc;padding:3px 5px"><b><?= htmlspecialchars($d['prod_nombre']) ?></b><br/><span style="color:#999;font-size:8px"><?= htmlspecialchars($d['prod_codigo']) ?> — <?= htmlspecialchars($d['cat_nombre']) ?></span></td><td style="border:1px solid #ccc;padding:3px 5px;text-align:center"><?= number_format($d['cantidad'],2) ?></td><td style="border:1px solid #ccc;padding:3px 5px;text-align:right"><?= $moneda ?> <?= number_format($d['precio_unit'],2) ?></td><td style="border:1px solid #ccc;padding:3px 5px;text-align:right;font-weight:bold"><?= $moneda ?> <?= number_format($d['subtotal'],2) ?></td></tr><?php endforeach; ?>
+      </table>
+      <table style="width:100%;border-collapse:collapse;margin-top:4px;font-size:9px">
+        <tr><td style="width:65%"></td><td style="border:1px solid #ccc;padding:3px 8px;width:35%"><table style="width:100%"><tr><td style="padding:2px 0;color:#666;font-weight:bold">BASE IMPONIBLE:</td><td style="text-align:right;font-weight:bold"><?= $moneda ?> <?= number_format($venta['subtotal'],2) ?></td></tr><tr><td style="padding:2px 0;color:#666">IGV (<?= $igvPct ?>%):</td><td style="text-align:right"><?= $moneda ?> <?= number_format($venta['igv'],2) ?></td></tr><?php if($venta['descuento'] > 0): ?><tr><td style="padding:2px 0;color:#dc2626">DESCUENTO:</td><td style="text-align:right;color:#dc2626">-<?= $moneda ?> <?= number_format($venta['descuento'],2) ?></td></tr><?php endif; ?><tr><td style="border-top:2px solid #1a1a2e;padding:4px 0;font-weight:bold;font-size:13px">TOTAL:</td><td style="border-top:2px solid #1a1a2e;text-align:right;font-weight:bold;font-size:13px"><?= $moneda ?> <?= number_format($venta['total'],2) ?></td></tr></table></td></tr>
+      </table>
+      <div style="text-align:center;margin-top:10px;border-top:1px solid #ccc;padding-top:6px;font-size:9px;color:#666"><b style="font-size:11px;color:#1a1a2e"><?= htmlspecialchars($empresa) ?></b><br/>¡Gracias por su compra!<?php if($empresaTel): ?><br/>📞 <?= htmlspecialchars($empresaTel) ?><?php endif; ?></div>
+    </div>
+    <?php endif;
+    return ob_get_clean();
+}
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -104,9 +169,10 @@ $mono  = "'Courier New',Courier,monospace";
 </head>
 <body>
 
-<div class="no-print" style="max-width:300px;margin:0 auto 12px;display:flex;gap:10px">
-  <button onclick="window.print()" style="background:#111;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>
-  <button onclick="window.close()" style="background:#f3f4f6;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer">← Volver</button>
+<div class="no-print" style="max-width:300px;margin:0 auto 12px;display:flex;gap:6px;flex-wrap:wrap">
+  <button onclick="window.print()" style="background:#111;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>
+  <a href="?id=<?= $id ?>&pdf=1&formato=<?= $formato ?>" target="_blank" style="background:#2563eb;color:#fff;text-decoration:none;border:none;border-radius:6px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;display:inline-block">📄 PDF</a>
+  <button onclick="window.close()" style="background:#f3f4f6;border:none;border-radius:6px;padding:8px 14px;font-size:13px;cursor:pointer">← Volver</button>
 </div>
 
 <div class="ticket">
@@ -248,13 +314,10 @@ if (new URLSearchParams(window.location.search).get('print') === '1') {
 <body>
 
 <!-- Botones no imprimibles -->
-<div class="no-print" style="max-width:210mm;margin:0 auto 12px;display:flex;gap:10px">
-  <button onclick="window.print()" style="background:#1a1a2e;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:700;cursor:pointer">
-    🖨️ Imprimir / Guardar PDF
-  </button>
-  <button onclick="window.close()" style="background:#f3f4f6;border:none;border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer">
-    ← Volver
-  </button>
+<div class="no-print" style="max-width:210mm;margin:0 auto 12px;display:flex;gap:8px;flex-wrap:wrap">
+  <button onclick="window.print()" style="background:#1a1a2e;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>
+  <a href="?id=<?= $id ?>&pdf=1&formato=<?= $formato ?>" target="_blank" style="background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;display:inline-block">📄 Descargar PDF</a>
+  <button onclick="window.close()" style="background:#f3f4f6;border:none;border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer">← Volver</button>
 </div>
 
 <div class="page">
