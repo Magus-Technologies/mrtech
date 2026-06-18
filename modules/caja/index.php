@@ -323,6 +323,11 @@ function resumeDenominaciones(array $dens, array $billetes, array $monedas): str
     <a href="<?= BASE_URL ?>modules/caja/historial.php" class="btn btn-outline-secondary btn-sm">
       <i data-feather="calendar" style="width:14px;height:14px"></i> Ver cajas anteriores
     </a>
+    <?php if ($cajaActiva && $cajaActiva['estado'] === 'abierta'): ?>
+    <button class="btn btn-warning btn-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#modal-cerrar-caja">
+      🔒 Cerrar caja
+    </button>
+    <?php endif; ?>
     <?php if ($cajaActiva): ?>
     <a href="<?= BASE_URL ?>modules/caja/reporte_pdf.php?id=<?= $cajaActiva['id'] ?>" target="_blank" class="btn btn-danger btn-sm">
       <i data-feather="file-text" style="width:14px;height:14px"></i> Reporte PDF
