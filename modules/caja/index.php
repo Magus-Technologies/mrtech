@@ -708,18 +708,18 @@ if ($cajaAbierta && $cajaAbierta['fecha'] !== $hoy): ?>
 <!-- ══════ MODAL CERRAR CAJA ══════ -->
 <div class="modal fade" id="modal-cerrar-caja" tabindex="-1" data-bs-backdrop="static">
   <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
-    <div class="modal-content">
-      <div class="modal-header" style="background:#1a1a2e;color:#fff">
-        <h6 class="modal-title fw-bold">
-          🔒 Cierre de caja —
-          <?= $cajaActiva ? date('d/m/Y', strtotime($cajaActiva['fecha'])) : date('d/m/Y') ?>
-        </h6>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <form method="POST">
+    <form method="POST">
+      <div class="modal-content">
+        <div class="modal-header" style="background:#1a1a2e;color:#fff">
+          <h6 class="modal-title fw-bold">
+            🔒 Cierre de caja —
+            <?= $cajaActiva ? date('d/m/Y', strtotime($cajaActiva['fecha'])) : date('d/m/Y') ?>
+          </h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
         <input type="hidden" name="action" value="cerrar"/>
         <input type="hidden" name="caja_id" value="<?= $cajaActiva['id'] ?>"/>
-        <div class="modal-body">
+        <div class="modal-body" style="overflow-y:auto;max-height:60vh">
 
           <!-- Resumen del día -->
           <div class="row g-2 mb-4">
@@ -817,8 +817,8 @@ if ($cajaAbierta && $cajaAbierta['fecha'] !== $hoy): ?>
             🔒 Confirmar cierre de caja
           </button>
         </div>
-      </form>
-    </div>
+      </div>
+    </form>
   </div>
 </div>
 
