@@ -707,7 +707,7 @@ if ($cajaAbierta && $cajaAbierta['fecha'] !== $hoy): ?>
 
 <!-- ══════ MODAL CERRAR CAJA ══════ -->
 <div class="modal fade" id="modal-cerrar-caja" tabindex="-1" data-bs-backdrop="static">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
     <div class="modal-content">
       <div class="modal-header" style="background:#1a1a2e;color:#fff">
         <h6 class="modal-title fw-bold">
