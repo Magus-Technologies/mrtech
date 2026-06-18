@@ -17,10 +17,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $user = $stmt->fetch();
 
         if ($user && password_verify($password, $user['password_hash'])) {
-            $_SESSION['user_id']     = $user['id'];
-            $_SESSION['user_nombre'] = $user['nombre'];
-            $_SESSION['user_rol']    = $user['rol'];
-            $_SESSION['user_email']  = $user['email'];
+            $_SESSION['user_id']         = $user['id'];
+            $_SESSION['user_nombre']     = $user['nombre'];
+            $_SESSION['user_rol']        = $user['rol'];
+            $_SESSION['user_email']      = $user['email'];
+            $_SESSION['user_almacen_id'] = $user['almacen_id'] ?? null;
             $db->prepare("UPDATE usuarios SET ultimo_acceso = NOW() WHERE id = ?")->execute([$user['id']]);
             redirect(BASE_URL . 'modules/dashboard/index.php');
         } else {

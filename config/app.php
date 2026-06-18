@@ -143,10 +143,11 @@ function requireRole(array $roles): void {
 
 function currentUser(): array {
     return [
-        'id'     => $_SESSION['user_id']     ?? 0,
-        'nombre' => $_SESSION['user_nombre'] ?? '',
-        'rol'    => $_SESSION['user_rol']    ?? '',
-        'email'  => $_SESSION['user_email']  ?? '',
+        'id'         => $_SESSION['user_id']         ?? 0,
+        'nombre'     => $_SESSION['user_nombre']     ?? '',
+        'rol'        => $_SESSION['user_rol']        ?? '',
+        'email'      => $_SESSION['user_email']      ?? '',
+        'almacen_id' => $_SESSION['user_almacen_id'] ?? null,
     ];
 }
 

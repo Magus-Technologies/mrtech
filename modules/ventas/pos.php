@@ -7,17 +7,45 @@ requireRole([ROL_ADMIN, ROL_VENDEDOR]);
 $db   = getDB();
 $user = currentUser();
 
+// ── Resolver almacén del usuario ──────────────────────────
+// Si el usuario tiene almacen_id asignado, usa ese. Si no, usa el principal.
+$almacenUsuario = null;
+$esAlmacenPrincipal = false;
+try {
+    if (!empty($user['almacen_id'])) {
+        $almacenUsuario = (int)$user['almacen_id'];
+    }
+    if (!$almacenUsuario) {
+        $almacenUsuario = (int)$db->query("SELECT id FROM almacenes WHERE principal=1 LIMIT 1")->fetchColumn() ?: null;
+    }
+    if ($almacenUsuario) {
+        $esAlmacenPrincipal = (int)$db->query("SELECT principal FROM almacenes WHERE id=$almacenUsuario")->fetchColumn() === 1;
+    }
+} catch (\Throwable $e) { /* módulo de traslados no instalado */ }
+
 // ── API: Buscar productos ─────────────────────────────────
 if (isset($_GET['api']) && $_GET['api'] === 'buscar') {
     header('Content-Type: application/json');
     $q = '%' . trim($_GET['q'] ?? '') . '%';
-    $r = $db->prepare("
-        SELECT id, codigo, nombre, precio_venta, stock_actual, unidad
-        FROM productos
-        WHERE activo=1
-          AND (nombre LIKE ? OR codigo LIKE ?)
-        LIMIT 20");
-    $r->execute([$q, $q]);
+    if ($almacenUsuario && !$esAlmacenPrincipal) {
+        $r = $db->prepare("
+            SELECT p.id, p.codigo, p.nombre, p.precio_venta,
+                   COALESCE(sa.cantidad, 0) as stock_actual, p.unidad
+            FROM productos p
+            LEFT JOIN stock_almacen sa ON sa.producto_id = p.id AND sa.almacen_id = ?
+            WHERE p.activo=1
+              AND (p.nombre LIKE ? OR p.codigo LIKE ?)
+            LIMIT 20");
+        $r->execute([$almacenUsuario, $q, $q]);
+    } else {
+        $r = $db->prepare("
+            SELECT id, codigo, nombre, precio_venta, stock_actual, unidad
+            FROM productos
+            WHERE activo=1
+              AND (nombre LIKE ? OR codigo LIKE ?)
+            LIMIT 20");
+        $r->execute([$q, $q]);
+    }
     echo json_encode($r->fetchAll(PDO::FETCH_ASSOC));
     exit;
 }
@@ -95,12 +123,9 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='procesar_ve
         $montoPag = (float)($_POST['monto_pagado'] ?? $total);
         $vuelto   = max(0, round($montoPag - $total, 2));
 
-        // ¿Existe el módulo de almacenes? Si es así, las salidas se marcan en
-        // el almacén principal (Tienda). Si no, queda en NULL (compatibilidad).
-        $almacenPrincipal = null;
-        try {
-            $almacenPrincipal = $db->query("SELECT id FROM almacenes WHERE principal=1 LIMIT 1")->fetchColumn() ?: null;
-        } catch (\Throwable $e) { /* módulo de traslados no instalado */ }
+        // El almacén ya fue resuelto al inicio del script ($almacenUsuario)
+        // Si el almacén del usuario ES el principal, se sincroniza productos.stock_actual.
+        // Si NO es el principal, solo se actualiza stock_almacen (no toca stock_actual global).
 
         // ── Toda la venta es atómica: o se guarda completa, o no se guarda nada ──
         $db->beginTransaction();
@@ -138,35 +163,55 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='procesar_ve
                 }
                 $sub = round($cant * $precio, 2);
 
-                // Bloquear la fila del producto para evitar ventas simultáneas
+                // Bloquear la fila del stock del almacén para evitar ventas simultáneas
                 // que dejen stock negativo (condición de carrera).
-                $prod = $db->prepare("SELECT nombre, stock_actual FROM productos WHERE id=? FOR UPDATE");
-                $prod->execute([$pid]);
-                $p = $prod->fetch();
-                if (!$p) {
-                    throw new RuntimeException('Producto no encontrado (ID '.$pid.').');
+                if ($almacenUsuario && !$esAlmacenPrincipal) {
+                    // Almacén secundario: leer de stock_almacen
+                    $stockQ = $db->prepare("SELECT cantidad FROM stock_almacen WHERE almacen_id=? AND producto_id=? FOR UPDATE");
+                    $stockQ->execute([$almacenUsuario, $pid]);
+                    $stockRow = $stockQ->fetch();
+                    $antes = $stockRow ? (float)$stockRow['cantidad'] : 0;
+                } else {
+                    // Almacén principal o sin módulo: leer de productos.stock_actual
+                    $prod = $db->prepare("SELECT nombre, stock_actual FROM productos WHERE id=? FOR UPDATE");
+                    $prod->execute([$pid]);
+                    $p = $prod->fetch();
+                    if (!$p) {
+                        throw new RuntimeException('Producto no encontrado (ID '.$pid.').');
+                    }
+                    $antes = (float)$p['stock_actual'];
                 }
-                $antes   = (float)$p['stock_actual'];
                 $despues = $antes - $cant;
 
                 // Validación de stock en el servidor (no confiar solo en el navegador)
                 if ($despues < 0) {
-                    throw new RuntimeException('Stock insuficiente de «'.$p['nombre'].'». Disponible: '.$antes.', solicitado: '.$cant.'.');
+                    // Obtener nombre del producto para el mensaje
+                    $nombQ = $db->prepare("SELECT nombre FROM productos WHERE id=?");
+                    $nombQ->execute([$pid]);
+                    $nomb = $nombQ->fetchColumn() ?: 'ID '.$pid;
+                    throw new RuntimeException('Stock insuficiente de «'.$nomb.'». Disponible: '.$antes.', solicitado: '.$cant.'.');
                 }
 
                 $db->prepare("INSERT INTO venta_detalle (venta_id,producto_id,cantidad,precio_unit,subtotal) VALUES (?,?,?,?,?)")
                    ->execute([$ventaId,$pid,$cant,$precio,$sub]);
 
-                $db->prepare("UPDATE productos SET stock_actual=? WHERE id=?")->execute([$despues,$pid]);
-
-                // Sincronizar el stock del almacén principal (Tienda) si el módulo existe
-                if ($almacenPrincipal) {
-                    $db->prepare("UPDATE stock_almacen SET cantidad=? WHERE almacen_id=? AND producto_id=?")
-                       ->execute([$despues, $almacenPrincipal, $pid]);
+                // Actualizar stock según el almacén
+                if ($almacenUsuario && !$esAlmacenPrincipal) {
+                    // Almacén secundario: actualizar stock_almacen
+                    $db->prepare("INSERT INTO stock_almacen (almacen_id,producto_id,cantidad) VALUES (?,?,?) ON DUPLICATE KEY UPDATE cantidad=?")
+                       ->execute([$almacenUsuario, $pid, $despues, $despues]);
+                } else {
+                    // Almacén principal o sin módulo: actualizar productos.stock_actual
+                    $db->prepare("UPDATE productos SET stock_actual=? WHERE id=?")->execute([$despues,$pid]);
+                    // Y sincronizar stock_almacen del principal si existe
+                    if ($almacenUsuario) {
+                        $db->prepare("UPDATE stock_almacen SET cantidad=? WHERE almacen_id=? AND producto_id=?")
+                           ->execute([$despues, $almacenUsuario, $pid]);
+                    }
                 }
 
                 $db->prepare("INSERT INTO kardex (producto_id,almacen_id,tipo,cantidad,stock_antes,stock_despues,precio_unit,motivo,referencia,usuario_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
-                   ->execute([$pid,$almacenPrincipal,'salida',$cant,$antes,$despues,$precio,'Venta',$codigo,$user['id']]);
+                   ->execute([$pid,$almacenUsuario,'salida',$cant,$antes,$despues,$precio,'Venta',$codigo,$user['id']]);
             }
 
             // Incrementar uso código descuento
