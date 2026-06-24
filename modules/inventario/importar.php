@@ -167,9 +167,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['archivo'])) {
             }
 
             if ($existe) {
-                // Actualizar (sin tocar el stock; eso se ajusta por movimientos/traslados)
+                // Actualizar datos maestros
                 $db->prepare("UPDATE productos SET nombre=?, descripcion=?, categoria_id=?, marca=?, modelo=?, serial=?, ubicacion=?, precio_costo=?, precio_venta=?, stock_minimo=?, stock_maximo=?, unidad=?, activo=? WHERE id=?")
                    ->execute([$nombre,$descripcion,$catId,$marca,$modelo,$serial,$ubicacion,$precioCosto,$precioVenta,$stockMin,$stockMax,$unidad,$activo,$existe]);
+                $prodId = (int)$existe;
+
+                // Actualizar stock del almacén elegido
+                if ($almacenes && $stockIni > 0) {
+                    // Leer stock actual del almacén
+                    $stQ = $db->prepare("SELECT cantidad FROM stock_almacen WHERE almacen_id=? AND producto_id=?");
+                    $stQ->execute([$almacenInicial, $prodId]);
+                    $stockAntes = (float)($stQ->fetchColumn() ?: 0);
+                    $stockDespues = $stockAntes + $stockIni;
+
+                    $db->prepare("INSERT INTO stock_almacen (almacen_id,producto_id,cantidad) VALUES (?,?,?) ON DUPLICATE KEY UPDATE cantidad=?")
+                       ->execute([$almacenInicial, $prodId, $stockDespues, $stockDespues]);
+
+                    // Si es el principal, sincronizar productos.stock_actual
+                    if ($almacenInicial === $almPrincipalId) {
+                        $db->prepare("UPDATE productos SET stock_actual=? WHERE id=?")->execute([$stockDespues, $prodId]);
+                    }
+
+                    // Kardex
+                    $db->prepare("INSERT INTO kardex (producto_id,almacen_id,tipo,cantidad,stock_antes,stock_despues,precio_unit,motivo,referencia,usuario_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
+                       ->execute([$prodId, $almacenInicial, 'entrada', $stockIni, $stockAntes, $stockDespues, $precioCosto, 'Importación masiva', 'IMPORT', $user['id']]);
+                }
+
+                // Asegurar que el producto existe en stock_almacen de TODOS los almacenes
+                if ($almacenes) {
+                    foreach ($almacenes as $a) {
+                        $db->prepare("INSERT IGNORE INTO stock_almacen (almacen_id,producto_id,cantidad) VALUES (?,?,0)")
+                           ->execute([(int)$a['id'], $prodId]);
+                    }
+                }
+
                 $actualizados++;
             } else {
                 // Generar código si vino vacío
@@ -217,7 +248,27 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php if ($resultados !== null): ?>
 <div class="tr-card mb-3">
   <div class="tr-card-body">
-    <h6 class="fw-bold mb-3">Resultado de la importación</h6>
+    <?php
+    $total = $resultados['creados'] + $resultados['actualizados'];
+    $totalErrores = count($resultados['errores']);
+    $todoFallo = $total === 0 && $totalErrores > 0;
+    $todoOk = $totalErrores === 0 && $total > 0;
+    ?>
+    <?php if ($todoFallo): ?>
+    <div class="alert alert-danger mb-3">
+      <strong>❌ No se importó ningún producto.</strong> Revisá los errores abajo y corregí el Excel.
+    </div>
+    <?php elseif (!$todoOk): ?>
+    <div class="alert alert-warning mb-3">
+      <strong>⚠️ Importación parcial.</strong> <?= $total ?> producto<?= $total!=1?'s':'' ?> procesado<?= $total!=1?'s':'' ?>, <?= $totalErrores ?> con error<?= $totalErrores!=1?'s':'' ?>.
+    </div>
+    <?php else: ?>
+    <div class="alert alert-success mb-3">
+      <strong>✅ Importación completa.</strong> <?= $total ?> producto<?= $total!=1?'s':'' ?> procesado<?= $total!=1?'s':'' ?> sin errores.
+    </div>
+    <?php endif; ?>
+
+    <h6 class="fw-bold mb-3">Detalle</h6>
     <div class="row g-2 mb-3">
       <div class="col-4"><div class="p-2 bg-light rounded text-center">
         <div class="fw-bold fs-4 text-success"><?= $resultados['creados'] ?></div><div class="small text-muted">Creados</div>
@@ -226,7 +277,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="fw-bold fs-4 text-primary"><?= $resultados['actualizados'] ?></div><div class="small text-muted">Actualizados</div>
       </div></div>
       <div class="col-4"><div class="p-2 bg-light rounded text-center">
-        <div class="fw-bold fs-4 <?= $resultados['errores']?'text-danger':'text-muted' ?>"><?= count($resultados['errores']) ?></div><div class="small text-muted">Con error</div>
+        <div class="fw-bold fs-4 <?= $resultados['errores']?'text-danger':'text-muted' ?>"><?= $totalErrores ?></div><div class="small text-muted">Con error</div>
       </div></div>
     </div>
     <?php if ($resultados['errores']): ?>
