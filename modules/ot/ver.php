@@ -67,6 +67,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         setFlash('success','Pago registrado correctamente.');
         redirect(BASE_URL . 'modules/ot/ver.php?id=' . $id);
     }
+    if ($_POST['action'] === 'anular_ot') {
+        $db->prepare("UPDATE ordenes_trabajo SET estado='cancelado' WHERE id=? AND estado!='entregado'")
+           ->execute([$id]);
+        $db->prepare("INSERT INTO historial_ot (ot_id,usuario_id,estado_antes,estado_nuevo,comentario) VALUES (?,?,?,?,?)")
+           ->execute([$id, $user['id'], $ot['estado'], 'cancelado', 'OT anulada por duplicado/error']);
+        setFlash('success', 'OT anulada correctamente.');
+        redirect(BASE_URL . 'modules/ot/ver.php?id=' . $id);
+    }
+    if ($_POST['action'] === 'eliminar_ot' && $user['rol'] === ROL_ADMIN) {
+        $db->beginTransaction();
+        try {
+            // Restaurar stock de repuestos del inventario
+            $repuestosDel = $db->prepare("SELECT producto_id, cantidad FROM ot_repuestos WHERE ot_id=? AND producto_id IS NOT NULL");
+            $repuestosDel->execute([$id]);
+            foreach ($repuestosDel as $rd) {
+                $pid = (int)$rd['producto_id'];
+                $cant = (float)$rd['cantidad'];
+                if ($pid > 0 && $cant > 0) {
+                    $prod = $db->prepare("SELECT nombre, stock_actual FROM productos WHERE id=? FOR UPDATE");
+                    $prod->execute([$pid]);
+                    $pr = $prod->fetch();
+                    if ($pr) {
+                        $nuevoStock = round((float)$pr['stock_actual'] + $cant, 2);
+                        $db->prepare("UPDATE productos SET stock_actual=? WHERE id=?")->execute([$nuevoStock, $pid]);
+                    }
+                }
+            }
+            // Eliminar registros asociados
+            $db->prepare("DELETE FROM historial_ot WHERE ot_id=?")->execute([$id]);
+            $db->prepare("DELETE FROM ot_repuestos WHERE ot_id=?")->execute([$id]);
+            $db->prepare("DELETE FROM fotos_ot WHERE ot_id=?")->execute([$id]);
+            // Eliminar movimientos de caja vinculados a esta OT
+            $db->prepare("DELETE FROM movimientos_caja WHERE referencia=? AND caja_id IN (SELECT id FROM cajas WHERE usuario_id=?)")
+               ->execute([$ot['codigo_ot'], $user['id']]);
+            // Eliminar la OT
+            $db->prepare("DELETE FROM ordenes_trabajo WHERE id=?")->execute([$id]);
+            $db->commit();
+            setFlash('success', 'OT eliminada permanentemente.');
+            redirect(BASE_URL . 'modules/ot/index.php');
+        } catch (\Throwable $e) {
+            $db->rollBack();
+            setFlash('danger', 'Error al eliminar OT: ' . $e->getMessage());
+            redirect(BASE_URL . 'modules/ot/ver.php?id=' . $id);
+        }
+    }
 }
 
 // Fotos
@@ -428,6 +473,33 @@ $eInfo = ESTADOS_OT[$estado] ?? ['label'=>ucfirst(str_replace('_',' ',$estado)),
       <div class="tr-card-header"><h6 class="mb-0 small fw-semibold">FIRMA DEL CLIENTE</h6></div>
       <div class="tr-card-body firma-preview">
         <img src="<?= $ot['firma_cliente'] ?>" alt="Firma" class="img-fluid"/>
+      </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- Zona de peligro: anular / eliminar (solo admin) -->
+    <?php if ($user['rol'] === ROL_ADMIN && !(isset($eInfo['es_final']) && $eInfo['es_final'])): ?>
+    <div class="tr-card mt-3">
+      <div class="tr-card-header" style="background:#7f1d1d;color:#fff">
+        <h6 class="mb-0 small fw-semibold">⚠️ ZONA DE PELIGRO</h6>
+      </div>
+      <div class="tr-card-body">
+        <form method="POST" onsubmit="return confirm('¿Anular esta OT? Se marcará como cancelada.')">
+          <input type="hidden" name="action" value="anular_ot"/>
+          <button type="submit" class="btn btn-outline-danger btn-sm w-100 mb-2">
+            🚫 Anular OT (marcar como cancelada)
+          </button>
+        </form>
+        <form method="POST" onsubmit="return confirm('¿ELIMINAR esta OT permanentemente?\\n\\nSe restaurará el stock de los repuestos.\\nEsta acción NO se puede deshacer.')">
+          <input type="hidden" name="action" value="eliminar_ot"/>
+          <button type="submit" class="btn btn-danger btn-sm w-100">
+            🗑️ Eliminar OT permanentemente
+          </button>
+        </form>
+        <div class="small text-muted mt-2">
+          <strong>Anular:</strong> marca como cancelada, se conserva en el historial.<br>
+          <strong>Eliminar:</strong> borra todo (OT, repuestos, fotos). Solo para duplicados reales sin movimientos.
+        </div>
       </div>
     </div>
     <?php endif; ?>

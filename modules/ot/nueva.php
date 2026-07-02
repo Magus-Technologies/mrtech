@@ -38,6 +38,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $checklist['_observacion'] = trim($_POST['check_obs'] ?? '');
 
+    // Prevenir duplicados: misma combinación cliente+equipo en los últimos 2 minutos
+    $dup = $db->prepare("SELECT id, codigo_ot, created_at FROM ordenes_trabajo WHERE cliente_id=? AND equipo_id=? AND created_at > DATE_SUB(NOW(), INTERVAL 2 MINUTE) LIMIT 1");
+    $dup->execute([$cliente_id, $equipo_id]);
+    $dupOt = $dup->fetch();
+    if ($dupOt) {
+        setFlash('warning', '⚠️ Ya se creó una OT para este cliente y equipo hace menos de 2 minutos: <a href="'.BASE_URL.'modules/ot/ver.php?id='.$dupOt['id'].'" class="fw-bold">'.$dupOt['codigo_ot'].'</a>. Verifica antes de continuar.');
+        redirect(BASE_URL . 'modules/ot/nueva.php');
+    }
+
     $codigoOT      = generarCodigoOT($db);
     $codigoPublico = generarCodigoPublicoOT();
 
@@ -523,19 +532,34 @@ function toggleNuevoCliente(nuevo) {
   document.getElementById('sel-cliente').required = !nuevo;
 }
 
-// ── Validación manual del cliente al submit ───────────────
-document.getElementById('form-nueva-ot').addEventListener('submit', function(e) {
-  const toggle = document.getElementById('toggle-nuevo-cliente');
-  if (!toggle.checked) {
-    const sel = document.getElementById('sel-cliente');
-    if (!sel.value) {
-      e.preventDefault();
-      document.getElementById('input-buscar-cliente').focus();
-      document.getElementById('cliente-seleccionado').textContent = '⚠ Debes seleccionar un cliente.';
-      document.getElementById('cliente-seleccionado').style.color = 'red';
-    }
+// ── Prevenir doble envío ──────────────────────────────────
+(function() {
+  const form = document.getElementById('form-nueva-ot');
+  const btn  = form ? form.querySelector('button[type="submit"]') : null;
+  if (form && btn) {
+    let submitted = false;
+    form.addEventListener('submit', function(e) {
+      const toggle = document.getElementById('toggle-nuevo-cliente');
+      if (!toggle.checked) {
+        const sel = document.getElementById('sel-cliente');
+        if (!sel.value) {
+          e.preventDefault();
+          document.getElementById('input-buscar-cliente').focus();
+          document.getElementById('cliente-seleccionado').textContent = '⚠ Debes seleccionar un cliente.';
+          document.getElementById('cliente-seleccionado').style.color = 'red';
+          return;
+        }
+      }
+      if (submitted) {
+        e.preventDefault();
+        return;
+      }
+      submitted = true;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Guardando...';
+    });
   }
-});
+})();
 
 // ── Buscador de cliente (filtra select oculto, sin AJAX) ─
 (function() {

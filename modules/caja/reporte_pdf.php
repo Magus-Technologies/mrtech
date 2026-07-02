@@ -69,7 +69,9 @@ $saldoFinal   = $caja['estado'] === 'cerrada' ? (float)$caja['saldo_final'] : ro
 $diferencia   = (float)($caja['diferencia_cierre'] ?? 0);
 $saldoEsperado = round($saldoInicial + $totalIng - $totalEgr, 2);
 
-// ── Agrupar ingresos por método de pago (desde ventas referenciadas) ─
+// ── Agrupar ingresos por método de pago ─
+// Usa metodo_pago de movimientos_caja cuando existe; fallback a string parsing para registros viejos
+$hasMetodoPDF   = cajaTieneMetodoPago();
 $ingPorMetodo = [
     'Efectivo'      => 0,
     'Tarjeta crédito' => 0,
@@ -79,14 +81,31 @@ $ingPorMetodo = [
     'Otros'         => 0,
 ];
 foreach ($ingresos as $mv) {
+    $monto = (float)$mv['monto'];
+    if ($hasMetodoPDF && !empty($mv['metodo_pago'])) {
+        $mp = $mv['metodo_pago'];
+        if (in_array($mp, ['yape','plin'])) {
+            $ingPorMetodo['Yape / Plin'] += $monto;
+        } elseif ($mp === 'tarjeta') {
+            $ingPorMetodo['Tarjeta crédito'] += $monto;
+        } elseif ($mp === 'transferencia') {
+            $ingPorMetodo['Transferencia'] += $monto;
+        } elseif ($mp === 'efectivo') {
+            $ingPorMetodo['Efectivo'] += $monto;
+        } else {
+            $ingPorMetodo['Otros'] += $monto;
+        }
+        continue;
+    }
+    // Fallback: parsear concepto/referencia para registros sin metodo_pago
     $ref = trim($mv['referencia'] ?? '');
     $concepto = strtolower($mv['concepto'] ?? '');
     if (str_contains($concepto, 'yape') || str_contains($concepto, 'plin')) {
-        $ingPorMetodo['Yape / Plin'] += (float)$mv['monto'];
+        $ingPorMetodo['Yape / Plin'] += $monto;
     } elseif (str_contains($concepto, 'transferencia')) {
-        $ingPorMetodo['Transferencia'] += (float)$mv['monto'];
+        $ingPorMetodo['Transferencia'] += $monto;
     } elseif (str_contains($concepto, 'tarjeta') || str_contains($concepto, 'visa') || str_contains($concepto, 'mastercard')) {
-        $ingPorMetodo['Tarjeta crédito'] += (float)$mv['monto'];
+        $ingPorMetodo['Tarjeta crédito'] += $monto;
     } elseif (str_contains($concepto, 'efectivo') || str_starts_with($ref, 'VTA-') || str_starts_with($ref, 'OT-')) {
         // Intentar obtener método real de la venta
         if (str_starts_with($ref, 'VTA-')) {
@@ -96,20 +115,38 @@ foreach ($ingresos as $mv) {
             if ($vrow) {
                 $mp = $vrow['metodo_pago'];
                 if (in_array($mp, ['yape','plin'])) {
-                    $ingPorMetodo['Yape / Plin'] += (float)$mv['monto'];
+                    $ingPorMetodo['Yape / Plin'] += $monto;
                 } elseif ($mp === 'tarjeta') {
-                    $ingPorMetodo['Tarjeta crédito'] += (float)$mv['monto'];
+                    $ingPorMetodo['Tarjeta crédito'] += $monto;
                 } elseif ($mp === 'transferencia') {
-                    $ingPorMetodo['Transferencia'] += (float)$mv['monto'];
+                    $ingPorMetodo['Transferencia'] += $monto;
                 } else {
-                    $ingPorMetodo['Efectivo'] += (float)$mv['monto'];
+                    $ingPorMetodo['Efectivo'] += $monto;
                 }
                 continue;
             }
         }
-        $ingPorMetodo['Efectivo'] += (float)$mv['monto'];
+        if (str_starts_with($ref, 'OT-')) {
+            $so = $db->prepare("SELECT metodo_pago, precio_final FROM ordenes_trabajo WHERE codigo_ot=? LIMIT 1");
+            $so->execute([$ref]);
+            $orow = $so->fetch();
+            if ($orow) {
+                $mp = $orow['metodo_pago'];
+                if (in_array($mp, ['yape','plin'])) {
+                    $ingPorMetodo['Yape / Plin'] += $monto;
+                } elseif ($mp === 'tarjeta') {
+                    $ingPorMetodo['Tarjeta crédito'] += $monto;
+                } elseif ($mp === 'transferencia') {
+                    $ingPorMetodo['Transferencia'] += $monto;
+                } else {
+                    $ingPorMetodo['Efectivo'] += $monto;
+                }
+                continue;
+            }
+        }
+        $ingPorMetodo['Efectivo'] += $monto;
     } else {
-        $ingPorMetodo['Otros'] += (float)$mv['monto'];
+        $ingPorMetodo['Otros'] += $monto;
     }
 }
 // Si ingreso_caja manual existe, ya está en efectivo
