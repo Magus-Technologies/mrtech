@@ -37,6 +37,7 @@ function enviarWhatsApp(PDO $db, int $otId, string $tipo): bool {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HTTPHEADER     => ['Authorization: Bearer '.$token, 'Content-Type: application/json'],
         CURLOPT_POSTFIELDS     => json_encode($payload),
+        CURLOPT_CONNECTTIMEOUT => 5,
         CURLOPT_TIMEOUT        => 10,
     ]);
     $resp = curl_exec($ch);

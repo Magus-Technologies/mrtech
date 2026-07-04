@@ -18,6 +18,7 @@ $ch = curl_init($url);
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_SSL_VERIFYPEER => false,
+    CURLOPT_CONNECTTIMEOUT => 3,
     CURLOPT_TIMEOUT        => 5,
 ]);
 $response = curl_exec($ch);

@@ -100,3 +100,56 @@
 [15:48:02] Archivo final OK: /var/www/html/demorepair/assets/img/uploads/ot/temp/vid_6a00ef01caf7b0.43855022.mp4 size=12949
 [15:48:02] Guardado en BD: id=33 ruta=ot/temp/vid_6a00ef01caf7b0.43855022.mp4
 [15:48:02] Respuesta: {"status":"complete","compressed":true,"original_size":39037,"final_size":12949,"saved_db":true,"fotos_ot_id":"33","ruta":"ot\/temp\/vid_6a00ef01caf7b0.43855022.mp4","duracion":1,"final_size_mb":0.01}
+[16:10:15] chunk=0/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:15] mkdir tmpDir=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/ ok=1
+[16:10:15] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00000 moved=1 size=1048576
+[16:10:15] chunks recibidos=1 total=15
+[16:10:15] chunk=1/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:15] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00001 moved=1 size=1048576
+[16:10:15] chunks recibidos=2 total=15
+[16:10:15] chunk=2/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:15] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00002 moved=1 size=1048576
+[16:10:15] chunks recibidos=3 total=15
+[16:10:15] chunk=3/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:15] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00003 moved=1 size=1048576
+[16:10:15] chunks recibidos=4 total=15
+[16:10:16] chunk=4/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:16] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00004 moved=1 size=1048576
+[16:10:16] chunks recibidos=5 total=15
+[16:10:16] chunk=5/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:16] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00005 moved=1 size=1048576
+[16:10:16] chunks recibidos=6 total=15
+[16:10:16] chunk=6/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:16] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00006 moved=1 size=1048576
+[16:10:16] chunks recibidos=7 total=15
+[16:10:16] chunk=7/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:16] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00007 moved=1 size=1048576
+[16:10:16] chunks recibidos=8 total=15
+[16:10:16] chunk=8/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:16] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00008 moved=1 size=1048576
+[16:10:16] chunks recibidos=9 total=15
+[16:10:16] chunk=9/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:16] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00009 moved=1 size=1048576
+[16:10:16] chunks recibidos=10 total=15
+[16:10:16] chunk=10/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:16] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00010 moved=1 size=1048576
+[16:10:16] chunks recibidos=11 total=15
+[16:10:16] chunk=11/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:16] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00011 moved=1 size=1048576
+[16:10:16] chunks recibidos=12 total=15
+[16:10:16] chunk=12/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:16] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00012 moved=1 size=1048576
+[16:10:16] chunks recibidos=13 total=15
+[16:10:16] chunk=13/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:16] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00013 moved=1 size=1048576
+[16:10:16] chunks recibidos=14 total=15
+[16:10:16] chunk=14/15 fileId=f1783199415899ijf7gk fileName=WhatsApp Video 2026-07-04 at 1.09.16 PM.mp4
+[16:10:16] chunk saved=C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/chunk_00014 moved=1 size=68219
+[16:10:16] chunks recibidos=15 total=15
+[16:10:16] Ensamblando archivo...
+[16:10:16] Ensamblado: C:\Users\EMER\AppData\Local\Temp/ot_chunks_f1783199415899ijf7gk/assembled.mp4 size=14748283
+[16:10:16] ffmpeg=NOT FOUND
+[16:10:16] Sin ffmpeg — copiando original
+[16:10:16] Archivo final OK: C:\laragon\www\mrtech/assets/img/uploads/ot/temp/vid_6a4976b845ff98.28951276.mp4 size=14748283
+[16:10:16] Guardado en BD: id=35 ruta=ot/temp/vid_6a4976b845ff98.28951276.mp4
+[16:10:16] Respuesta: {"status":"complete","compressed":false,"saved_db":true,"fotos_ot_id":"35","ruta":"ot\/temp\/vid_6a4976b845ff98.28951276.mp4","duracion":null,"final_size":14748283,"final_size_mb":14.07}
