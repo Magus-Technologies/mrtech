@@ -47,17 +47,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect(BASE_URL . 'modules/ot/nueva.php');
     }
 
-    $codigoOT      = generarCodigoOT($db);
-    $codigoPublico = generarCodigoPublicoOT();
-
     $costoRep = (float)($_POST['costo_repuestos'] ?? 0);
     $costoMO  = (float)($_POST['costo_mano_obra']  ?? 0);
     $total    = $costoRep + $costoMO;
     $tecnico  = $_POST['tecnico_id'] ? (int)$_POST['tecnico_id'] : null;
 
-    $db->prepare("INSERT INTO ordenes_trabajo (codigo_ot,codigo_publico,cliente_id,equipo_id,servicio_id,tecnico_id,usuario_creador_id,estado,problema_reportado,diagnostico_inicial,checklist,costo_repuestos,costo_mano_obra,costo_total,precio_final,fecha_estimada,firma_cliente,garantia_dias) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-       ->execute([$codigoOT,$codigoPublico,$cliente_id,$equipo_id,$_POST['servicio_id']?:(null),$tecnico,$user['id'],'ingresado',trim($_POST['problema_reportado']??''),trim($_POST['diagnostico_inicial']??''),json_encode($checklist,JSON_UNESCAPED_UNICODE),$costoRep,$costoMO,$total,$total,$_POST['fecha_estimada']?:null,$_POST['firma_cliente']?:null,(int)($_POST['garantia_dias']??30)]);
-    $otId = $db->lastInsertId();
+    // Insertar la OT con reintento: si el código correlativo choca (huecos por borrados
+    // o dos guardados en simultáneo), se regenera y reintenta en vez de reventar con un 500.
+    $otId = 0;
+    for ($intento = 1; $intento <= 5; $intento++) {
+        $codigoOT      = generarCodigoOT($db);
+        $codigoPublico = generarCodigoPublicoOT();
+        try {
+            $db->prepare("INSERT INTO ordenes_trabajo (codigo_ot,codigo_publico,cliente_id,equipo_id,servicio_id,tecnico_id,usuario_creador_id,estado,problema_reportado,diagnostico_inicial,checklist,costo_repuestos,costo_mano_obra,costo_total,precio_final,fecha_estimada,firma_cliente,garantia_dias) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+               ->execute([$codigoOT,$codigoPublico,$cliente_id,$equipo_id,$_POST['servicio_id']?:(null),$tecnico,$user['id'],'ingresado',trim($_POST['problema_reportado']??''),trim($_POST['diagnostico_inicial']??''),json_encode($checklist,JSON_UNESCAPED_UNICODE),$costoRep,$costoMO,$total,$total,$_POST['fecha_estimada']?:null,$_POST['firma_cliente']?:null,(int)($_POST['garantia_dias']??30)]);
+            $otId = (int)$db->lastInsertId();
+            break;
+        } catch (\PDOException $e) {
+            // 23000 = violación de clave única (código repetido) → regenerar y reintentar
+            if ($e->getCode() === '23000' && $intento < 5) { continue; }
+            error_log('Error al crear OT: ' . $e->getMessage());
+            setFlash('danger', '❌ No se pudo guardar la orden de trabajo. Volvé a intentar; si el problema persiste avisá al administrador.');
+            redirect(BASE_URL . 'modules/ot/nueva.php');
+        }
+    }
 
     $db->prepare("INSERT INTO historial_ot (ot_id,usuario_id,estado_nuevo,comentario) VALUES (?,?,?,?)")
        ->execute([$otId,$user['id'],'ingresado','OT creada']);
