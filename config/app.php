@@ -155,11 +155,14 @@ function currentUser(): array {
 // Generadores de códigos
 // ----------------------------------------------------------
 function generarCodigoOT(PDO $db): string {
-    $anio = date('Y');
-    $stmt = $db->prepare("SELECT COUNT(*) FROM ordenes_trabajo WHERE YEAR(created_at) = ?");
-    $stmt->execute([$anio]);
+    $anio   = date('Y');
+    $prefix = 'OT-' . $anio . '-';
+    // Basar el correlativo en el número MÁS ALTO ya usado (no en COUNT):
+    // los borrados dejan huecos y COUNT regeneraría códigos existentes → choque de clave única.
+    $stmt = $db->prepare("SELECT MAX(CAST(SUBSTRING(codigo_ot, ?) AS UNSIGNED)) FROM ordenes_trabajo WHERE codigo_ot LIKE ?");
+    $stmt->execute([strlen($prefix) + 1, $prefix . '%']);
     $n = (int)$stmt->fetchColumn() + 1;
-    return 'OT-' . $anio . '-' . str_pad($n, 4, '0', STR_PAD_LEFT);
+    return $prefix . str_pad($n, 4, '0', STR_PAD_LEFT);
 }
 
 function generarCodigoPublicoOT(): string {
@@ -167,17 +170,20 @@ function generarCodigoPublicoOT(): string {
 }
 
 function generarCodigoCliente(PDO $db): string {
-    $stmt = $db->query("SELECT COUNT(*) FROM clientes");
+    // MAX del correlativo ya usado (no COUNT): evita chocar con códigos existentes tras borrados.
+    $stmt = $db->query("SELECT MAX(CAST(SUBSTRING(codigo, 5) AS UNSIGNED)) FROM clientes WHERE codigo LIKE 'CLI-%'");
     $n = (int)$stmt->fetchColumn() + 1;
     return 'CLI-' . str_pad($n, 4, '0', STR_PAD_LEFT);
 }
 
 function generarCodigoVenta(PDO $db): string {
-    $anio = date('Y');
-    $stmt = $db->prepare("SELECT COUNT(*) FROM ventas WHERE YEAR(created_at) = ?");
-    $stmt->execute([$anio]);
+    $anio   = date('Y');
+    $prefix = 'VTA-' . $anio . '-';
+    // MAX del correlativo ya usado (no COUNT): evita chocar con códigos existentes tras borrados.
+    $stmt = $db->prepare("SELECT MAX(CAST(SUBSTRING(codigo, ?) AS UNSIGNED)) FROM ventas WHERE codigo LIKE ?");
+    $stmt->execute([strlen($prefix) + 1, $prefix . '%']);
     $n = (int)$stmt->fetchColumn() + 1;
-    return 'VTA-' . $anio . '-' . str_pad($n, 4, '0', STR_PAD_LEFT);
+    return $prefix . str_pad($n, 4, '0', STR_PAD_LEFT);
 }
 
 // ----------------------------------------------------------
