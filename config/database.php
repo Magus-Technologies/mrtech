@@ -7,7 +7,7 @@
     if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
     ini_set('log_errors',   '1');
     ini_set('error_log',    $dir . '/php-error.log');
-    ini_set('display_errors','0'); // no mostrar errores al cliente en producción
+    ini_set('display_errors','1'); // TEMPORAL: mostrar error en pantalla para diagnóstico — revertir a '0'
     error_reporting(E_ALL);
 })();
 
