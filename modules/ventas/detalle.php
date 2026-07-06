@@ -131,8 +131,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'anular'
             $db->prepare("INSERT INTO kardex (producto_id,almacen_id,tipo,cantidad,stock_antes,stock_despues,precio_unit,motivo,referencia,usuario_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
                ->execute([$d['producto_id'],$almacenPrincipal,'devolucion',$d['cantidad'],$antes,$despues,$d['precio_unit'],'Venta anulada',$venta['codigo'],$user['id']]);
         }
+
+        // Revertir el impacto en caja: por cada ingreso que generó esta venta se registra
+        // el egreso opuesto (mismo método y misma caja), para que el cuadre no descuadre.
+        $movs = $db->prepare("SELECT * FROM movimientos_caja WHERE referencia=? AND tipo='ingreso'");
+        $movs->execute([$venta['codigo']]);
+        foreach ($movs->fetchAll() as $mv) {
+            $metodo = $mv['metodo_pago'] ?? 'efectivo';
+            insertMovimientoCaja($db, (int)$mv['caja_id'], 'egreso', 'Anulación venta '.$venta['codigo'],
+                                 (float)$mv['monto'], $venta['codigo'], (int)$user['id'], $metodo);
+        }
+
         $db->commit();
-        setFlash('success','Venta anulada y stock restaurado.');
+        setFlash('success','Venta anulada: stock restaurado y caja ajustada.');
     } catch (\Throwable $e) {
         $db->rollBack();
         setFlash('danger','No se pudo anular la venta: '.$e->getMessage());
