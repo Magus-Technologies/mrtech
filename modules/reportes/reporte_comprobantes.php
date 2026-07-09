@@ -318,8 +318,7 @@ if ($exportar) {
     $sh->getStyle("A{$filaHeader}:{$ULT_COL}{$filaTotales}")->getBorders()->getAllBorders()
        ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('B7C0CD');
 
-    // Encabezado siempre visible + filtros por columna
-    $sh->freezePane('A' . ($filaHeader + 1));
+    // Filtros por columna sobre el encabezado del detalle
     if ($filaUltimoDato >= $filaPrimerDato) {
         $sh->setAutoFilter("A{$filaHeader}:{$ULT_COL}{$filaUltimoDato}");
     }
@@ -335,7 +334,7 @@ if ($exportar) {
     $sh->getPageSetup()->setOrientation(PageSetup::ORIENTATION_LANDSCAPE)
        ->setPaperSize(PageSetup::PAPERSIZE_A4)->setFitToWidth(1)->setFitToHeight(0);
     $sh->getPageSetup()->setRowsToRepeatAtTopByStartAndEnd($filaHeader, $filaHeader);
-    $sh->setSelectedCell('A' . ($filaHeader + 1));
+    $sh->setSelectedCell('A1');
 
     $filename = 'comprobantes_' . str_replace('-', '', $desde) . '_' . str_replace('-', '', $hasta) . '.xlsx';
     while (ob_get_level()) { ob_end_clean(); }
