@@ -68,11 +68,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         redirect(BASE_URL . 'modules/ot/ver.php?id=' . $id);
     }
     if ($_POST['action'] === 'anular_ot') {
-        $db->prepare("UPDATE ordenes_trabajo SET estado='cancelado' WHERE id=? AND estado!='entregado'")
-           ->execute([$id]);
-        $db->prepare("INSERT INTO historial_ot (ot_id,usuario_id,estado_antes,estado_nuevo,comentario) VALUES (?,?,?,?,?)")
-           ->execute([$id, $user['id'], $ot['estado'], 'cancelado', 'OT anulada por duplicado/error']);
-        setFlash('success', 'OT anulada correctamente.');
+        // Anular dos veces duplicaría la reversión en caja
+        if ($ot['estado'] === 'cancelado') {
+            setFlash('warning', 'Esta OT ya estaba anulada.');
+            redirect(BASE_URL . 'modules/ot/ver.php?id=' . $id);
+        }
+        if ($ot['estado'] === 'entregado') {
+            setFlash('danger', 'No se puede anular una OT ya entregada.');
+            redirect(BASE_URL . 'modules/ot/ver.php?id=' . $id);
+        }
+        $db->beginTransaction();
+        try {
+            $db->prepare("UPDATE ordenes_trabajo SET estado='cancelado' WHERE id=?")->execute([$id]);
+            $db->prepare("INSERT INTO historial_ot (ot_id,usuario_id,estado_antes,estado_nuevo,comentario) VALUES (?,?,?,?,?)")
+               ->execute([$id, $user['id'], $ot['estado'], 'cancelado', 'OT anulada por duplicado/error']);
+
+            // Revertir el impacto en caja: por cada ingreso que generó el pago de esta OT
+            // se registra el egreso opuesto (mismo método y misma caja), para no descuadrar.
+            $movs = $db->prepare("SELECT * FROM movimientos_caja WHERE referencia=? AND tipo='ingreso'");
+            $movs->execute([$ot['codigo_ot']]);
+            $revertidos = 0;
+            foreach ($movs->fetchAll() as $mv) {
+                $metodo = $mv['metodo_pago'] ?? 'efectivo';
+                insertMovimientoCaja($db, (int)$mv['caja_id'], 'egreso', 'Anulación OT ' . $ot['codigo_ot'],
+                                     (float)$mv['monto'], $ot['codigo_ot'], (int)$user['id'], $metodo);
+                $revertidos++;
+            }
+            $db->commit();
+            setFlash('success', $revertidos > 0
+                ? 'OT anulada y caja ajustada: se revirtió el pago registrado.'
+                : 'OT anulada correctamente.');
+        } catch (\Throwable $e) {
+            $db->rollBack();
+            error_log('Error al anular OT: ' . $e->getMessage());
+            setFlash('danger', 'No se pudo anular la OT. Volvé a intentar; si persiste avisá al administrador.');
+        }
         redirect(BASE_URL . 'modules/ot/ver.php?id=' . $id);
     }
     if ($_POST['action'] === 'eliminar_ot' && $user['rol'] === ROL_ADMIN) {
